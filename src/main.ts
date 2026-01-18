@@ -393,9 +393,14 @@ class BotAdventureApp {
       `
 
       try {
-        const imageBlob = await this.generateSceneImage(imageText.value, choicesList)
-        const imageUrl = URL.createObjectURL(imageBlob)
+        const imageResult = await this.generateSceneImage(imageText.value, choicesList)
+        const imageUrl = URL.createObjectURL(imageResult.blob)
         const altText = this.combineSceneAndChoices(imageText.value, choices.value)
+
+        // Warn if content is very short
+        const contentWarning = imageResult.dimensions.height < 400
+          ? '<div style="color: orange; margin-top: 10px;">⚠️ Short content may look sparse. Consider adding more text.</div>'
+          : ''
 
         previewContent.innerHTML = `
           <div class="scene-canvas">
@@ -409,12 +414,13 @@ class BotAdventureApp {
               </div>
             ` : ''}
             <div>
-              <strong>Image (500×600px portrait):</strong><br/>
-              <img src="${imageUrl}" style="width: 500px; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" />
+              <strong>Image (${imageResult.dimensions.width}×${imageResult.dimensions.height}px):</strong><br/>
+              <img src="${imageUrl}" style="width: ${imageResult.dimensions.width}px; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" />
             </div>
             <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.7;">
               Alt text: ${altText.length} characters
             </div>
+            ${contentWarning}
           </div>
         `
       } catch (error) {
@@ -478,11 +484,11 @@ class BotAdventureApp {
         // We have image text, so create an image post
         this.showStatus(statusDiv, 'Generating image...', 'info')
 
-        const imageBlob = await this.generateSceneImage(imageText.value, choicesList)
+        const imageResult = await this.generateSceneImage(imageText.value, choicesList)
 
         // Upload the image
         this.showStatus(statusDiv, 'Uploading image...', 'info')
-        const uploadResponse = await this.agent.uploadBlob(imageBlob, {
+        const uploadResponse = await this.agent.uploadBlob(imageResult.blob, {
           encoding: 'image/png',
         })
 
@@ -498,8 +504,8 @@ class BotAdventureApp {
               alt: altText, // Full text as alt for accessibility
               image: uploadResponse.data.blob,
               aspectRatio: {
-                width: 500,
-                height: 600, // Portrait orientation for Bluesky
+                width: imageResult.dimensions.width,
+                height: imageResult.dimensions.height,
               },
             }],
           },
@@ -569,24 +575,21 @@ class BotAdventureApp {
     }
   }
 
-  private async generateSceneImage(sceneText: string, choices: string[]): Promise<Blob> {
-    // Create a temporary container for rendering (portrait orientation for Bluesky)
-    const container = document.createElement('div')
-    container.style.position = 'fixed'
-    container.style.left = '-9999px'
-    container.style.width = '500px' // Wider for better readability, will still be portrait
-    container.style.backgroundColor = '#1a1a1a'
+  private async generateSceneImage(sceneText: string, choices: string[]): Promise<{ blob: Blob, dimensions: { width: number, height: number } }> {
+    // First, measure content with max width to determine natural height
+    const measureContainer = document.createElement('div')
+    measureContainer.style.position = 'fixed'
+    measureContainer.style.left = '-9999px'
+    measureContainer.style.width = '500px' // Max width
+    measureContainer.style.backgroundColor = '#1a1a1a'
 
-    // Add min-height to ensure portrait orientation
-    container.style.minHeight = '600px'
-
-    container.innerHTML = `
-      <div style="padding: 20px; font-family: system-ui, -apple-system, sans-serif; background: #1a1a1a; color: #ffffff; min-height: 560px; display: flex; flex-direction: column;">
-        <div style="font-size: 17px; line-height: 1.8; margin-bottom: 20px; color: #f0f0f0; flex: 1;">
+    measureContainer.innerHTML = `
+      <div style="padding: 20px; font-family: system-ui, -apple-system, sans-serif; background: #1a1a1a; color: #ffffff;">
+        <div style="font-size: 17px; line-height: 1.8; margin-bottom: ${choices.length > 0 ? '20px' : '0'}; color: #f0f0f0;">
           ${sceneText.replace(/\n/g, '<br>')}
         </div>
         ${choices.length > 0 ? `
-          <div style="border-top: 2px solid #444; padding-top: 15px; margin-top: auto;">
+          <div style="border-top: 2px solid #444; padding-top: 15px;">
             <div style="font-size: 13px; color: #999; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">Your choices:</div>
             ${choices.map(c => `
               <div style="font-size: 16px; margin: 8px 0; font-weight: 500; color: #00bfff;">
@@ -598,6 +601,36 @@ class BotAdventureApp {
       </div>
     `
 
+    document.body.appendChild(measureContainer)
+
+    // Measure the natural height
+    const naturalHeight = measureContainer.offsetHeight
+    document.body.removeChild(measureContainer)
+
+    // Calculate optimal width to ensure height >= width
+    let finalWidth = 500
+    let finalHeight = naturalHeight
+
+    // If content is too short, reduce width to make it more square
+    if (naturalHeight < 500) {
+      finalWidth = Math.max(350, naturalHeight) // Min width of 350px for readability
+
+      // Re-measure with new width
+      measureContainer.style.width = finalWidth + 'px'
+      document.body.appendChild(measureContainer)
+      finalHeight = measureContainer.offsetHeight
+      document.body.removeChild(measureContainer)
+    }
+
+    // Now create the final container with calculated dimensions
+    const container = document.createElement('div')
+    container.style.position = 'fixed'
+    container.style.left = '-9999px'
+    container.style.width = finalWidth + 'px'
+    container.style.backgroundColor = '#1a1a1a'
+
+    container.innerHTML = measureContainer.innerHTML
+
     document.body.appendChild(container)
 
     try {
@@ -607,7 +640,7 @@ class BotAdventureApp {
         logging: false,
       })
 
-      return new Promise((resolve, reject) => {
+      const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((blob) => {
           if (blob) {
             resolve(blob)
@@ -616,6 +649,11 @@ class BotAdventureApp {
           }
         }, 'image/png')
       })
+
+      return {
+        blob,
+        dimensions: { width: finalWidth, height: finalHeight }
+      }
     } finally {
       document.body.removeChild(container)
     }

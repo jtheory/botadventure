@@ -244,11 +244,14 @@ class BotAdventureApp {
         password: appPassword,
       })
 
-      this.authState = { handle, appPassword, session: this.agent.session }
+      // Get the actual handle from the session (in case user logged in with email)
+      const actualHandle = this.agent.session?.handle || handle
+
+      this.authState = { handle: actualHandle, appPassword, session: this.agent.session }
       this.saveAuthState()
       this.isAuthenticated = true
 
-      this.showStatus(statusDiv, `Connected as @${handle}`, 'success')
+      this.showStatus(statusDiv, `Connected as @${actualHandle}`, 'success')
       this.showPostSection()
 
       // Clear password field for security
@@ -272,13 +275,18 @@ class BotAdventureApp {
         password: this.authState.appPassword,
       })
 
+      // Get the actual handle from the session (in case original was email)
+      const actualHandle = this.agent.session?.handle || this.authState.handle
+      this.authState.handle = actualHandle
+      this.saveAuthState()
+
       this.isAuthenticated = true
-      this.showStatus(statusDiv, `Connected as @${this.authState.handle}`, 'success')
+      this.showStatus(statusDiv, `Connected as @${actualHandle}`, 'success')
       this.showPostSection()
 
       // Pre-fill the handle
       const handleInput = document.getElementById('handle') as HTMLInputElement
-      handleInput.value = this.authState.handle
+      handleInput.value = actualHandle
     } catch (error) {
       console.error('Session restore failed:', error)
       this.showStatus(statusDiv, 'Session expired. Please log in again.', 'error')
@@ -522,9 +530,19 @@ class BotAdventureApp {
           <a href="${postUrl}" target="_blank" style="color: #00bfff; text-decoration: underline;">
             View on Bluesky →
           </a>
+          <br/>
+          <small style="opacity: 0.7;">Replies analyzer auto-populated below ↓</small>
         </div>
       `
       statusDiv.style.display = 'block'
+
+      // Auto-populate the reply analyzer with the new post URL
+      const postUrlInput = document.getElementById('post-url') as HTMLInputElement
+      if (postUrlInput) {
+        postUrlInput.value = postUrl
+        // Scroll to the reply section to show it was populated
+        document.getElementById('reply-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
 
       // Clear the form and saved data
       postText.value = ''

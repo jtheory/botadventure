@@ -58,10 +58,12 @@ class BotAdventureApp {
         const postText = document.getElementById('post-text') as HTMLTextAreaElement
         const imageText = document.getElementById('image-text') as HTMLTextAreaElement
         const choices = document.getElementById('choices') as HTMLTextAreaElement
+        const postUrl = document.getElementById('post-url') as HTMLInputElement
 
         if (postText) postText.value = data.postText || ''
         if (imageText) imageText.value = data.imageText || ''
         if (choices) choices.value = data.choices || ''
+        if (postUrl) postUrl.value = data.postUrl || ''
 
         this.updateCharCounter()
       } catch (e) {
@@ -74,11 +76,13 @@ class BotAdventureApp {
     const postText = document.getElementById('post-text') as HTMLTextAreaElement
     const imageText = document.getElementById('image-text') as HTMLTextAreaElement
     const choices = document.getElementById('choices') as HTMLTextAreaElement
+    const postUrl = document.getElementById('post-url') as HTMLInputElement
 
     const data = {
       postText: postText?.value || '',
       imageText: imageText?.value || '',
       choices: choices?.value || '',
+      postUrl: postUrl?.value || '',
     }
 
     localStorage.setItem('botadventure_scene', JSON.stringify(data))
@@ -209,6 +213,12 @@ class BotAdventureApp {
     const postButton = document.getElementById('post-button')
     postButton?.addEventListener('click', () => {
       this.postToBluesky()
+    })
+
+    // Post URL input (for reply fetching)
+    const postUrlInput = document.getElementById('post-url') as HTMLInputElement
+    postUrlInput?.addEventListener('input', () => {
+      this.saveSceneData()
     })
 
     // Fetch replies button
@@ -399,8 +409,8 @@ class BotAdventureApp {
               </div>
             ` : ''}
             <div>
-              <strong>Image (400px mobile width):</strong><br/>
-              <img src="${imageUrl}" style="width: 400px; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" />
+              <strong>Image (500×600px portrait):</strong><br/>
+              <img src="${imageUrl}" style="width: 500px; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" />
             </div>
             <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.7;">
               Alt text: ${altText.length} characters
@@ -488,8 +498,8 @@ class BotAdventureApp {
               alt: altText, // Full text as alt for accessibility
               image: uploadResponse.data.blob,
               aspectRatio: {
-                width: 400,
-                height: 400, // Will be dynamic based on content
+                width: 500,
+                height: 600, // Portrait orientation for Bluesky
               },
             }],
           },
@@ -540,16 +550,17 @@ class BotAdventureApp {
       const postUrlInput = document.getElementById('post-url') as HTMLInputElement
       if (postUrlInput) {
         postUrlInput.value = postUrl
+        this.saveSceneData() // Save the URL so it persists across reloads
         // Scroll to the reply section to show it was populated
         document.getElementById('reply-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }
 
-      // Clear the form and saved data
+      // Clear the form but keep the URL
       postText.value = ''
       imageText.value = ''
       choices.value = ''
       this.updateCharCounter()
-      localStorage.removeItem('botadventure_scene')
+      this.saveSceneData() // Save with cleared fields but preserved URL
     } catch (error) {
       console.error('Post error:', error)
       this.showStatus(statusDiv, `Failed to post: ${error}`, 'error')
@@ -559,23 +570,26 @@ class BotAdventureApp {
   }
 
   private async generateSceneImage(sceneText: string, choices: string[]): Promise<Blob> {
-    // Create a temporary container for rendering (mobile-optimized width)
+    // Create a temporary container for rendering (portrait orientation for Bluesky)
     const container = document.createElement('div')
     container.style.position = 'fixed'
     container.style.left = '-9999px'
-    container.style.width = '400px' // Mobile-optimized width
+    container.style.width = '500px' // Wider for better readability, will still be portrait
     container.style.backgroundColor = '#1a1a1a'
 
+    // Add min-height to ensure portrait orientation
+    container.style.minHeight = '600px'
+
     container.innerHTML = `
-      <div style="padding: 30px; font-family: system-ui, -apple-system, sans-serif; background: #1a1a1a; color: #ffffff;">
-        <div style="font-size: 16px; line-height: 1.7; margin-bottom: 24px; color: #f0f0f0;">
+      <div style="padding: 20px; font-family: system-ui, -apple-system, sans-serif; background: #1a1a1a; color: #ffffff; min-height: 560px; display: flex; flex-direction: column;">
+        <div style="font-size: 17px; line-height: 1.8; margin-bottom: 20px; color: #f0f0f0; flex: 1;">
           ${sceneText.replace(/\n/g, '<br>')}
         </div>
         ${choices.length > 0 ? `
-          <div style="border-top: 2px solid #444; padding-top: 16px;">
-            <div style="font-size: 12px; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px;">Your choices:</div>
+          <div style="border-top: 2px solid #444; padding-top: 15px; margin-top: auto;">
+            <div style="font-size: 13px; color: #999; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">Your choices:</div>
             ${choices.map(c => `
-              <div style="font-size: 15px; margin: 8px 0; font-weight: 500; color: #00bfff;">
+              <div style="font-size: 16px; margin: 8px 0; font-weight: 500; color: #00bfff;">
                 ${c}
               </div>
             `).join('')}
@@ -621,6 +635,7 @@ class BotAdventureApp {
 
     // Parse the URL to get the AT URI
     let atUri: string
+
     if (url.startsWith('at://')) {
       atUri = url
     } else if (url.includes('bsky.app/profile/')) {
@@ -628,7 +643,6 @@ class BotAdventureApp {
       const match = url.match(/profile\/([^/]+)\/post\/([^/?]+)/)
       if (match) {
         const [, handle, postId] = match
-        atUri = `at://did:plc:${handle}/app.bsky.feed.post/${postId}`
 
         // We need to resolve the handle to a DID first
         try {
@@ -666,16 +680,27 @@ class BotAdventureApp {
       }
 
       const post = thread.data.thread
+
+      // Extract post content
+      const postAuthor = post.post?.author?.handle || 'unknown'
+      const postText = post.post?.record?.text || ''
+      const postLikes = post.post?.likeCount || 0
+      const postReposts = post.post?.repostCount || 0
+      const postTime = post.post?.record?.createdAt ? new Date(post.post.record.createdAt).toLocaleString() : ''
+      const postEmbed = post.post?.embed
+
       const replies = post.replies || []
 
       // Count votes (A), B), C) patterns)
       const votes: Record<string, number> = {}
       const voteDetails: Array<{choice: string, author: string, likes: number, text: string}> = []
+      let totalReplyCount = 0
 
       // Recursive function to process all replies
       const processReplies = (replies: any[]) => {
         replies.forEach(reply => {
           if (reply.post) {
+            totalReplyCount++
             const text = reply.post.record?.text || ''
             const author = reply.post.author?.handle || 'unknown'
             const likes = reply.post.likeCount || 0
@@ -700,41 +725,90 @@ class BotAdventureApp {
       processReplies(replies)
 
       // Display statistics
-      const totalReplies = voteDetails.length
       const voteBreakdown = Object.entries(votes)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([choice, count]) => `${choice}: ${count}`)
         .join(', ')
 
+      // Check if post has an image
+      let imageHtml = ''
+      if (postEmbed && postEmbed.images && postEmbed.images.length > 0) {
+        const image = postEmbed.images[0]
+        imageHtml = `
+          <div style="margin-top: 10px;">
+            <div style="padding: 10px; background: #1a1a1a; border-radius: 8px; display: inline-block;">
+              <div style="font-size: 0.9em; color: #f0f0f0; white-space: pre-wrap;">${image.alt || 'No alt text'}</div>
+            </div>
+          </div>
+        `
+      }
+
       statsDiv.innerHTML = `
+        <div style="padding: 15px; background: rgba(255,255,255,0.05); border-radius: 8px; margin-bottom: 15px;">
+          <h3 style="margin-bottom: 10px;">Original Post</h3>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span style="opacity: 0.9;">@${postAuthor}</span>
+            <span style="opacity: 0.6; font-size: 0.9em;">${postTime}</span>
+          </div>
+          <div style="padding: 10px; background: rgba(255,255,255,0.03); border-radius: 4px; margin-bottom: 10px;">
+            <div style="white-space: pre-wrap;">${postText || '(No text - image post)'}</div>
+            ${imageHtml}
+          </div>
+          <div style="display: flex; gap: 20px; font-size: 0.9em; opacity: 0.8;">
+            <span>❤️ ${postLikes}</span>
+            <span>🔁 ${postReposts}</span>
+            <span>💬 ${totalReplyCount}</span>
+          </div>
+        </div>
+
         <div style="padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px; margin-bottom: 10px;">
-          <strong>Post Stats:</strong><br/>
-          Likes: ${post.post?.likeCount || 0} | Reposts: ${post.post?.repostCount || 0}<br/>
-          Total replies: ${totalReplies}<br/>
-          ${voteBreakdown ? `<strong>Vote counts:</strong> ${voteBreakdown}` : 'No votes detected'}
+          <strong>Reply Analysis:</strong><br/>
+          Total replies found: ${totalReplyCount}<br/>
+          Replies with votes: ${voteDetails.length}<br/>
+          ${voteBreakdown ? `<strong>Vote counts:</strong> ${voteBreakdown}` : ''}
         </div>
       `
 
+      // Collect ALL replies for debugging
+      const allReplies: Array<{author: string, likes: number, text: string}> = []
+      const collectAllReplies = (replies: any[]) => {
+        replies.forEach(reply => {
+          if (reply.post) {
+            const text = reply.post.record?.text || ''
+            const author = reply.post.author?.handle || 'unknown'
+            const likes = reply.post.likeCount || 0
+            allReplies.push({ author, likes, text })
+            if (reply.replies && reply.replies.length > 0) {
+              collectAllReplies(reply.replies)
+            }
+          }
+        })
+      }
+      collectAllReplies(replies)
+
       // Display individual replies
-      if (voteDetails.length > 0) {
-        const sortedVotes = voteDetails.sort((a, b) => b.likes - a.likes)
+      if (totalReplyCount > 0) {
+        // Sort all replies by likes
+        const sortedReplies = allReplies.sort((a, b) => b.likes - a.likes)
+
         listDiv.innerHTML = `
-          <div style="max-height: 400px; overflow-y: auto; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 4px;">
-            <h4>Votes (sorted by likes):</h4>
-            ${sortedVotes.map(vote => `
-              <div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                  <strong>Choice ${vote.choice}</strong>
-                  <span style="opacity: 0.7;">❤️ ${vote.likes}</span>
+          <div style="max-height: 500px; overflow-y: auto; padding: 15px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+            <h4 style="margin-bottom: 15px;">Replies (${totalReplyCount} total)</h4>
+            ${sortedReplies.map((reply, index) => `
+              <div style="margin: 10px 0; padding: 12px; background: rgba(255,255,255,0.04); border-radius: 6px; border-left: 3px solid ${reply.likes > 0 ? '#00bfff' : 'rgba(255,255,255,0.1)'};">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                  <span style="opacity: 0.9; font-weight: 500;">@${reply.author}</span>
+                  <span style="opacity: 0.7; display: flex; gap: 10px;">
+                    ${reply.likes > 0 ? `<span>❤️ ${reply.likes}</span>` : ''}
+                  </span>
                 </div>
-                <div style="font-size: 0.9em; opacity: 0.8;">@${vote.author}</div>
-                <div style="margin-top: 5px; font-size: 0.9em;">${vote.text.substring(0, 100)}${vote.text.length > 100 ? '...' : ''}</div>
+                <div style="font-size: 0.95em; line-height: 1.5; white-space: pre-wrap;">${reply.text}</div>
               </div>
             `).join('')}
           </div>
         `
       } else {
-        listDiv.innerHTML = '<div style="opacity: 0.7;">No votes found in replies</div>'
+        listDiv.innerHTML = '<div style="opacity: 0.7; padding: 20px; text-align: center;">No replies yet</div>'
       }
     } catch (error) {
       console.error('Error fetching replies:', error)

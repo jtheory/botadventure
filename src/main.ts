@@ -1,5 +1,6 @@
 import './style.css'
 import { BskyAgent } from '@atproto/api'
+import html2canvas from 'html2canvas'
 
 // Character limits
 const BLUESKY_CHAR_LIMIT = 300  // Bluesky's current limit
@@ -47,6 +48,40 @@ class BotAdventureApp {
     } else {
       localStorage.removeItem('botadventure_auth')
     }
+  }
+
+  private loadSceneData() {
+    const stored = localStorage.getItem('botadventure_scene')
+    if (stored) {
+      try {
+        const data = JSON.parse(stored)
+        const sceneText = document.getElementById('scene-text') as HTMLTextAreaElement
+        const choices = document.getElementById('choices') as HTMLTextAreaElement
+        const postMode = document.getElementById('post-mode') as HTMLSelectElement
+
+        if (sceneText) sceneText.value = data.sceneText || ''
+        if (choices) choices.value = data.choices || ''
+        if (postMode) postMode.value = data.postMode || 'text'
+
+        this.updateCharCounter()
+      } catch (e) {
+        console.error('Failed to load scene data:', e)
+      }
+    }
+  }
+
+  private saveSceneData() {
+    const sceneText = document.getElementById('scene-text') as HTMLTextAreaElement
+    const choices = document.getElementById('choices') as HTMLTextAreaElement
+    const postMode = document.getElementById('post-mode') as HTMLSelectElement
+
+    const data = {
+      sceneText: sceneText?.value || '',
+      choices: choices?.value || '',
+      postMode: postMode?.value || 'text',
+    }
+
+    localStorage.setItem('botadventure_scene', JSON.stringify(data))
   }
 
   private initializeUI() {
@@ -131,12 +166,21 @@ class BotAdventureApp {
     const postMode = document.getElementById('post-mode') as HTMLSelectElement
     postMode.addEventListener('change', () => {
       this.updateCharCounter()
+      this.saveSceneData()
     })
 
     // Scene text input
     const sceneText = document.getElementById('scene-text') as HTMLTextAreaElement
     sceneText.addEventListener('input', () => {
       this.updateCharCounter()
+      this.saveSceneData()
+    })
+
+    // Choices input
+    const choices = document.getElementById('choices') as HTMLTextAreaElement
+    choices.addEventListener('input', () => {
+      this.updateCharCounter()
+      this.saveSceneData()
     })
 
     // Preview button
@@ -150,6 +194,9 @@ class BotAdventureApp {
     postButton?.addEventListener('click', () => {
       this.postToBluesky()
     })
+
+    // Load any saved scene data
+    this.loadSceneData()
   }
 
   private async handleAuth() {
@@ -271,10 +318,10 @@ class BotAdventureApp {
     const previewDiv = document.getElementById('scene-preview')!
     const previewContent = document.getElementById('preview-content')!
 
-    const fullText = this.combineSceneAndChoices(sceneText.value, choicesText.value)
+    const fullText = this.combineSceneAndChoices(sceneText.value, choices.value)
 
     // Create a preview that shows what will be rendered
-    const choicesList = choicesText.value
+    const choicesList = choices.value
       .split('\\n')
       .map(c => c.trim())
       .filter(c => c.length > 0)
@@ -329,22 +376,101 @@ class BotAdventureApp {
           createdAt: new Date().toISOString(),
         })
       } else {
-        // TODO: Implement image generation and posting
-        this.showStatus(statusDiv, 'Image posting coming soon! Use text mode for now.', 'error')
-        return
+        // Generate image and post with alt text
+        this.showStatus(statusDiv, 'Generating image...', 'info')
+
+        const choicesList = choices.value
+          .split('\n')
+          .map(c => c.trim())
+          .filter(c => c.length > 0)
+
+        const imageBlob = await this.generateSceneImage(sceneText.value, choicesList)
+
+        // Upload the image
+        this.showStatus(statusDiv, 'Uploading image...', 'info')
+        const uploadResponse = await this.agent.uploadBlob(imageBlob, {
+          encoding: 'image/png',
+        })
+
+        // Post with image and alt text
+        await this.agent.post({
+          text: 'New scene in our adventure! 🎮', // Short text for the post
+          embed: {
+            $type: 'app.bsky.embed.images',
+            images: [{
+              alt: fullText, // Full text as alt for accessibility
+              image: uploadResponse.data.blob,
+              aspectRatio: {
+                width: 800,
+                height: 600,
+              },
+            }],
+          },
+          createdAt: new Date().toISOString(),
+        })
       }
 
       this.showStatus(statusDiv, 'Posted successfully!', 'success')
 
-      // Clear the form
+      // Clear the form and saved data
       sceneText.value = ''
       choices.value = ''
       this.updateCharCounter()
+      localStorage.removeItem('botadventure_scene')
     } catch (error) {
       console.error('Post error:', error)
       this.showStatus(statusDiv, `Failed to post: ${error}`, 'error')
     } finally {
       postButton.disabled = false
+    }
+  }
+
+  private async generateSceneImage(sceneText: string, choices: string[]): Promise<Blob> {
+    // Create a temporary container for rendering
+    const container = document.createElement('div')
+    container.style.position = 'fixed'
+    container.style.left = '-9999px'
+    container.style.width = '800px'
+    container.style.backgroundColor = 'white'
+
+    container.innerHTML = `
+      <div style="padding: 40px; font-family: system-ui, -apple-system, sans-serif; background: white; color: black;">
+        <div style="font-size: 18px; line-height: 1.6; margin-bottom: 30px;">
+          ${sceneText.replace(/\n/g, '<br>')}
+        </div>
+        ${choices.length > 0 ? `
+          <div style="border-top: 2px solid #e0e0e0; padding-top: 20px;">
+            <div style="font-size: 14px; color: #666; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px;">Your choices:</div>
+            ${choices.map(c => `
+              <div style="font-size: 16px; margin: 10px 0; font-weight: 500; color: #333;">
+                ${c}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `
+
+    document.body.appendChild(container)
+
+    try {
+      const canvas = await html2canvas(container, {
+        backgroundColor: '#ffffff',
+        scale: 2, // Higher quality
+        logging: false,
+      })
+
+      return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob)
+          } else {
+            reject(new Error('Failed to create image'))
+          }
+        }, 'image/png')
+      })
+    } finally {
+      document.body.removeChild(container)
     }
   }
 

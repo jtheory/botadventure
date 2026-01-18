@@ -141,6 +141,24 @@ class BotAdventureApp {
 
           <div id="post-status"></div>
         </div>
+
+        <div id="reply-section" style="display: none;">
+          <h2>Analyze Replies</h2>
+
+          <div class="form-group">
+            <label for="post-url">Post URL or URI</label>
+            <input type="text" id="post-url" placeholder="https://bsky.app/profile/user/post/... or at://..." />
+            <small style="opacity: 0.7">Paste a Bluesky post URL to fetch its replies</small>
+          </div>
+
+          <button id="fetch-replies-button">Fetch Replies</button>
+
+          <div id="reply-results" style="display: none; margin-top: 20px;">
+            <h3>Results</h3>
+            <div id="reply-stats"></div>
+            <div id="reply-list"></div>
+          </div>
+        </div>
       </div>
     `
 
@@ -191,6 +209,12 @@ class BotAdventureApp {
     const postButton = document.getElementById('post-button')
     postButton?.addEventListener('click', () => {
       this.postToBluesky()
+    })
+
+    // Fetch replies button
+    const fetchRepliesButton = document.getElementById('fetch-replies-button')
+    fetchRepliesButton?.addEventListener('click', () => {
+      this.fetchReplies()
     })
 
     // Load any saved scene data
@@ -265,8 +289,12 @@ class BotAdventureApp {
 
   private showPostSection() {
     const postSection = document.getElementById('post-section')
+    const replySection = document.getElementById('reply-section')
     if (postSection) {
       postSection.style.display = 'block'
+    }
+    if (replySection) {
+      replySection.style.display = 'block'
     }
   }
 
@@ -558,6 +586,141 @@ class BotAdventureApp {
       })
     } finally {
       document.body.removeChild(container)
+    }
+  }
+
+  private async fetchReplies() {
+    const urlInput = document.getElementById('post-url') as HTMLInputElement
+    const resultsDiv = document.getElementById('reply-results')!
+    const statsDiv = document.getElementById('reply-stats')!
+    const listDiv = document.getElementById('reply-list')!
+
+    const url = urlInput.value.trim()
+    if (!url) {
+      alert('Please enter a post URL')
+      return
+    }
+
+    // Parse the URL to get the AT URI
+    let atUri: string
+    if (url.startsWith('at://')) {
+      atUri = url
+    } else if (url.includes('bsky.app/profile/')) {
+      // Parse https://bsky.app/profile/{handle}/post/{postId}
+      const match = url.match(/profile\/([^/]+)\/post\/([^/?]+)/)
+      if (match) {
+        const [, handle, postId] = match
+        atUri = `at://did:plc:${handle}/app.bsky.feed.post/${postId}`
+
+        // We need to resolve the handle to a DID first
+        try {
+          const profile = await this.agent.getProfile({ actor: handle })
+          const did = profile.data.did
+          atUri = `at://${did}/app.bsky.feed.post/${postId}`
+        } catch (e) {
+          // If handle resolution fails, try using the handle directly
+          atUri = `at://${handle}/app.bsky.feed.post/${postId}`
+        }
+      } else {
+        alert('Invalid Bluesky post URL format')
+        return
+      }
+    } else {
+      alert('Please enter a valid Bluesky post URL or AT URI')
+      return
+    }
+
+    // Show loading state
+    resultsDiv.style.display = 'block'
+    statsDiv.innerHTML = '<div class="status info">Fetching replies...</div>'
+    listDiv.innerHTML = ''
+
+    try {
+      // Fetch the post thread
+      const thread = await this.agent.getPostThread({
+        uri: atUri,
+        depth: 100, // Get deep replies
+      })
+
+      if (!thread.data.thread) {
+        statsDiv.innerHTML = '<div class="status error">Post not found</div>'
+        return
+      }
+
+      const post = thread.data.thread
+      const replies = post.replies || []
+
+      // Count votes (A), B), C) patterns)
+      const votes: Record<string, number> = {}
+      const voteDetails: Array<{choice: string, author: string, likes: number, text: string}> = []
+
+      // Recursive function to process all replies
+      const processReplies = (replies: any[]) => {
+        replies.forEach(reply => {
+          if (reply.post) {
+            const text = reply.post.record?.text || ''
+            const author = reply.post.author?.handle || 'unknown'
+            const likes = reply.post.likeCount || 0
+            const reposts = reply.post.repostCount || 0
+
+            // Check for vote patterns: A), (A), A:, A., or just A at start
+            const voteMatch = text.match(/^([A-Z])[\)\:\.]|^\(([A-Z])\)|^([A-Z])(?:\s|$)/i)
+            if (voteMatch) {
+              const choice = (voteMatch[1] || voteMatch[2] || voteMatch[3]).toUpperCase()
+              votes[choice] = (votes[choice] || 0) + 1
+              voteDetails.push({ choice, author, likes, text })
+            }
+
+            // Process nested replies
+            if (reply.replies && reply.replies.length > 0) {
+              processReplies(reply.replies)
+            }
+          }
+        })
+      }
+
+      processReplies(replies)
+
+      // Display statistics
+      const totalReplies = voteDetails.length
+      const voteBreakdown = Object.entries(votes)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([choice, count]) => `${choice}: ${count}`)
+        .join(', ')
+
+      statsDiv.innerHTML = `
+        <div style="padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px; margin-bottom: 10px;">
+          <strong>Post Stats:</strong><br/>
+          Likes: ${post.post?.likeCount || 0} | Reposts: ${post.post?.repostCount || 0}<br/>
+          Total replies: ${totalReplies}<br/>
+          ${voteBreakdown ? `<strong>Vote counts:</strong> ${voteBreakdown}` : 'No votes detected'}
+        </div>
+      `
+
+      // Display individual replies
+      if (voteDetails.length > 0) {
+        const sortedVotes = voteDetails.sort((a, b) => b.likes - a.likes)
+        listDiv.innerHTML = `
+          <div style="max-height: 400px; overflow-y: auto; padding: 10px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+            <h4>Votes (sorted by likes):</h4>
+            ${sortedVotes.map(vote => `
+              <div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                  <strong>Choice ${vote.choice}</strong>
+                  <span style="opacity: 0.7;">❤️ ${vote.likes}</span>
+                </div>
+                <div style="font-size: 0.9em; opacity: 0.8;">@${vote.author}</div>
+                <div style="margin-top: 5px; font-size: 0.9em;">${vote.text.substring(0, 100)}${vote.text.length > 100 ? '...' : ''}</div>
+              </div>
+            `).join('')}
+          </div>
+        `
+      } else {
+        listDiv.innerHTML = '<div style="opacity: 0.7;">No votes found in replies</div>'
+      }
+    } catch (error) {
+      console.error('Error fetching replies:', error)
+      statsDiv.innerHTML = `<div class="status error">Error: ${error}</div>`
     }
   }
 

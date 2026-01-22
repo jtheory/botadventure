@@ -11,6 +11,35 @@ interface AuthState {
   session?: any
 }
 
+interface Post {
+  uri: string
+  cid: string
+  author: {
+    did: string
+    handle: string
+    displayName?: string
+  }
+  record: {
+    text: string
+    createdAt: string
+    reply?: {
+      root: { uri: string; cid: string }
+      parent: { uri: string; cid: string }
+    }
+  }
+  embed?: any
+  replyCount?: number
+  repostCount?: number
+  likeCount?: number
+  indexedAt: string
+}
+
+interface ThreadNode {
+  post: Post
+  replies?: Post[]
+  depth: number
+}
+
 class BotAdventureApp {
   private agent: BskyAgent
   private authState: AuthState | null = null
@@ -20,6 +49,12 @@ class BotAdventureApp {
   private lastTextChangeTime = 0
   private previewRefreshTimer: NodeJS.Timeout | null = null
   private isGeneratingPreview = false
+
+  // Thread navigation state
+  private threadPath: ThreadNode[] = []
+  private currentPost: Post | null = null
+  private editingReplyTo: Post | null = null
+  private rootPost: Post | null = null
 
   constructor() {
     this.agent = new BskyAgent({
@@ -75,16 +110,61 @@ class BotAdventureApp {
     const postText = document.getElementById('post-text') as HTMLTextAreaElement
     const imageText = document.getElementById('image-text') as HTMLTextAreaElement
     const choices = document.getElementById('choices') as HTMLTextAreaElement
-    const postUrl = document.getElementById('post-url') as HTMLInputElement
 
     const data = {
       postText: postText?.value || '',
       imageText: imageText?.value || '',
       choices: choices?.value || '',
-      postUrl: postUrl?.value || '',
     }
 
     localStorage.setItem('botadventure_scene', JSON.stringify(data))
+  }
+
+  private saveThreadState() {
+    const threadData = {
+      rootPost: this.rootPost,
+      threadPath: this.threadPath,
+      editingReplyTo: this.editingReplyTo,
+    }
+    localStorage.setItem('botadventure_thread', JSON.stringify(threadData))
+  }
+
+  private async loadThreadState() {
+    const stored = localStorage.getItem('botadventure_thread')
+    if (stored) {
+      try {
+        const data = JSON.parse(stored)
+        this.rootPost = data.rootPost
+        this.threadPath = data.threadPath || []
+        this.editingReplyTo = data.editingReplyTo
+
+        // If we have a thread state, render it
+        if (this.rootPost && this.threadPath.length > 0) {
+          // Show thread view
+          const threadView = document.getElementById('thread-view')
+          if (threadView) threadView.style.display = 'block'
+
+          // Update editor if we have a reply target
+          if (this.editingReplyTo) {
+            const editorTitle = document.getElementById('editor-title')
+            const replyingToDiv = document.getElementById('replying-to')
+            const replyingToText = document.getElementById('replying-to-text')
+
+            if (editorTitle) editorTitle.textContent = 'Create Reply'
+            if (replyingToDiv) replyingToDiv.style.display = 'block'
+            if (replyingToText) {
+              replyingToText.textContent = this.editingReplyTo.record.text.substring(0, 100) +
+                (this.editingReplyTo.record.text.length > 100 ? '...' : '')
+            }
+          }
+
+          // Render the thread
+          this.renderThreadView()
+        }
+      } catch (e) {
+        console.error('Failed to load thread state:', e)
+      }
+    }
   }
 
   private initializeUI() {
@@ -124,64 +204,67 @@ class BotAdventureApp {
           </div>
         </div>
 
-        <div id="post-section" class="split-layout" style="display: none;">
-          <div class="editor-panel">
-            <h2>Create Scene</h2>
-
+        <div id="main-content" style="display: none;">
+          <!-- Load existing thread section -->
+          <div id="load-thread-section" class="load-thread-section">
             <div class="form-group">
-              <label for="post-text">Post Text (optional, ${BLUESKY_CHAR_LIMIT} chars)</label>
-              <textarea id="post-text" placeholder="Optional text for the post..." rows="3"></textarea>
-              <div id="char-counter" class="char-counter">0 / ${BLUESKY_CHAR_LIMIT}</div>
+              <label for="thread-url">Load Thread (paste URL and press Enter)</label>
+              <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/... (press Enter to load)" />
+              <small style="opacity: 0.7">Load a new thread anytime - replaces current thread</small>
             </div>
-
-            <div class="form-group">
-              <label for="image-text">Image Text (optional, creates an image if filled)</label>
-              <textarea id="image-text" placeholder="Text that will be rendered as an image..." rows="5"></textarea>
-            </div>
-
-            <div class="form-group">
-              <label for="choices">Choices (optional, one per line)</label>
-              <textarea id="choices" placeholder="A) Go left&#10;B) Go right&#10;C) Turn back" rows="4"></textarea>
-              <small style="opacity: 0.7">Choices go in the image if image text exists, otherwise in post text</small>
-            </div>
-
-            <div class="button-group">
-              <button id="post-button" class="primary-button">Post to Bluesky</button>
-            </div>
-
-            <div id="post-status"></div>
+            <div id="load-status"></div>
           </div>
 
-          <div class="preview-panel">
-            <div class="preview-header">
-              <h3>Live Preview</h3>
-              <div id="preview-status" class="preview-status"></div>
+          <!-- Thread view -->
+          <div id="thread-view" class="thread-view"></div>
+
+          <!-- Editor section -->
+          <div id="editor-section" class="split-layout">
+            <div class="editor-panel">
+              <h2 id="editor-title">Create Scene</h2>
+              <div id="replying-to" style="display: none; margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius: 5px;">
+                <strong>Replying to:</strong>
+                <div id="replying-to-text" style="margin-top: 5px;"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="post-text">Post Text (optional, ${BLUESKY_CHAR_LIMIT} chars)</label>
+                <textarea id="post-text" placeholder="Optional text for the post..." rows="3"></textarea>
+                <div id="char-counter" class="char-counter">0 / ${BLUESKY_CHAR_LIMIT}</div>
+              </div>
+
+              <div class="form-group">
+                <label for="image-text">Image Text (optional, creates an image if filled)</label>
+                <textarea id="image-text" placeholder="Text that will be rendered as an image..." rows="5"></textarea>
+              </div>
+
+              <div class="form-group">
+                <label for="choices">Choices (optional, one per line)</label>
+                <textarea id="choices" placeholder="A) Go left&#10;B) Go right&#10;C) Turn back" rows="4"></textarea>
+                <small style="opacity: 0.7">Choices go in the image if image text exists, otherwise in post text</small>
+              </div>
+
+              <div class="button-group">
+                <button id="post-button" class="primary-button">Post to Bluesky</button>
+                <button id="cancel-reply" style="display: none; margin-left: 10px;">Cancel Reply</button>
+              </div>
+
+              <div id="post-status"></div>
             </div>
-            <div id="scene-preview" class="scene-preview">
-              <div id="preview-content">
-                <div style="text-align: center; opacity: 0.5; padding: 40px;">
-                  Start typing to see a preview
+
+            <div class="preview-panel">
+              <div class="preview-header">
+                <h3>Live Preview</h3>
+                <div id="preview-status" class="preview-status"></div>
+              </div>
+              <div id="scene-preview" class="scene-preview">
+                <div id="preview-content">
+                  <div style="text-align: center; opacity: 0.5; padding: 40px;">
+                    Start typing to see a preview
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        <div id="reply-section" style="display: none;">
-          <h2>Analyze Replies</h2>
-
-          <div class="form-group">
-            <label for="post-url">Post URL or URI</label>
-            <input type="text" id="post-url" placeholder="https://bsky.app/profile/user/post/... or at://..." />
-            <small style="opacity: 0.7">Paste a Bluesky post URL to fetch its replies</small>
-          </div>
-
-          <button id="fetch-replies-button">Fetch Replies</button>
-
-          <div id="reply-results" style="display: none; margin-top: 20px;">
-            <h3>Results</h3>
-            <div id="reply-stats"></div>
-            <div id="reply-list"></div>
           </div>
         </div>
       </div>
@@ -242,16 +325,22 @@ class BotAdventureApp {
       this.postToBluesky()
     })
 
-    // Post URL input (for reply fetching)
-    const postUrlInput = document.getElementById('post-url') as HTMLInputElement
-    postUrlInput?.addEventListener('input', () => {
-      this.saveSceneData()
+    // Cancel reply button
+    const cancelReplyButton = document.getElementById('cancel-reply')
+    cancelReplyButton?.addEventListener('click', () => {
+      this.cancelReply()
     })
 
-    // Fetch replies button
-    const fetchRepliesButton = document.getElementById('fetch-replies-button')
-    fetchRepliesButton?.addEventListener('click', () => {
-      this.fetchReplies()
+    // Thread URL input - load on Enter
+    const threadUrlInput = document.getElementById('thread-url') as HTMLInputElement
+    threadUrlInput?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        const url = threadUrlInput.value.trim()
+        if (url) {
+          this.loadExistingThread()
+        }
+      }
     })
 
     // Load any saved scene data
@@ -380,6 +469,9 @@ class BotAdventureApp {
       this.showAuthConnected(actualHandle)
       this.showPostSection()
 
+      // Load saved thread state if any
+      await this.loadThreadState()
+
       // Pre-fill the handle (in case user returns to form)
       const handleInput = document.getElementById('handle') as HTMLInputElement
       handleInput.value = actualHandle
@@ -398,23 +490,453 @@ class BotAdventureApp {
 
     if (authFormContainer) authFormContainer.style.display = 'none'
     if (authConnected) authConnected.style.display = 'flex'
-    if (connectedHandle) connectedHandle.textContent = `@${handle}`
+    if (connectedHandle) {
+      connectedHandle.innerHTML = `<a href="https://bsky.app/profile/${handle}" target="_blank" style="color: #00bfff; text-decoration: none;">@${handle}</a>`
+    }
   }
 
   private showPostSection() {
-    const postSection = document.getElementById('post-section')
-    const replySection = document.getElementById('reply-section')
-    if (postSection) {
-      postSection.style.display = 'grid'  // Changed to grid for split layout
-    }
-    if (replySection) {
-      replySection.style.display = 'block'
+    const mainContent = document.getElementById('main-content')
+    if (mainContent) {
+      mainContent.style.display = 'block'
     }
 
     // Trigger initial preview update
     setTimeout(() => {
       this.updatePreview()
     }, 100)
+  }
+
+  // Thread rendering methods
+  private renderThreadView() {
+    const threadView = document.getElementById('thread-view')
+    if (!threadView) return
+
+    threadView.innerHTML = ''
+
+    // Show each post in the thread path with inverted tree
+    this.threadPath.forEach((node, index) => {
+      // Create post container
+      const postContainer = document.createElement('div')
+      postContainer.className = 'thread-post-container'
+
+      // Add the main post (with link inside)
+      const postElement = this.createPostElement(node.post, index === this.threadPath.length - 1, index)
+      postContainer.appendChild(postElement)
+
+      // Show replies and editor connection for current post
+      if (index === this.threadPath.length - 1) {
+        const treeContainer = document.createElement('div')
+        treeContainer.className = 'inverted-tree'
+
+        // Create container for both replies and editor connection
+        const branchContainer = document.createElement('div')
+        branchContainer.className = 'branch-container'
+
+        // Add existing replies as stubs
+        if (node.replies && node.replies.length > 0) {
+          node.replies.forEach((reply) => {
+            // Check if this reply is selected (next in path)
+            const isSelected = index < this.threadPath.length - 1 &&
+                             this.threadPath[index + 1].post.uri === reply.uri
+
+            // Create minimal reply card
+            const replyCard = document.createElement('div')
+            replyCard.className = 'reply-card' + (isSelected ? ' selected' : '')
+
+            // Get first few words of reply text
+            const previewText = reply.record.text.substring(0, 50)
+            const truncatedText = previewText.length < reply.record.text.length ?
+                                previewText + '...' : previewText
+
+            replyCard.innerHTML = `
+              <div class="reply-card-author">@${reply.author.handle}</div>
+              <div class="reply-card-text">${truncatedText}</div>
+            `
+
+            // Add click handler
+            replyCard.addEventListener('click', () => this.selectPost(reply))
+
+            // Create tree line
+            const treeLine = document.createElement('div')
+            treeLine.className = 'tree-line' + (isSelected ? ' selected' : '')
+
+            // Create card with line
+            const cardWithLine = document.createElement('div')
+            cardWithLine.className = 'card-with-line'
+            cardWithLine.appendChild(treeLine)
+            cardWithLine.appendChild(replyCard)
+
+            branchContainer.appendChild(cardWithLine)
+          })
+        }
+
+        // Add editor connection as a branch alongside replies
+        const editorBranch = document.createElement('div')
+        editorBranch.className = 'card-with-line editor-branch'
+        editorBranch.innerHTML = `
+          <div class="tree-line editor-line-branch"></div>
+          <div class="editor-card">
+            <div class="editor-card-label">Your draft reply ↓</div>
+          </div>
+        `
+
+        branchContainer.appendChild(editorBranch)
+        treeContainer.appendChild(branchContainer)
+        postContainer.appendChild(treeContainer)
+      } else if (index < this.threadPath.length - 1) {
+        // Show non-selected reply stubs alongside the selected path
+        const treeContainer = document.createElement('div')
+        treeContainer.className = 'inverted-tree'
+
+        const branchContainer = document.createElement('div')
+        branchContainer.className = 'branch-container'
+
+        // Find which reply is selected
+        const selectedReply = this.threadPath[index + 1].post
+
+        // Show all replies
+        if (node.replies && node.replies.length > 0) {
+          node.replies.forEach((reply) => {
+            const isSelected = reply.uri === selectedReply.uri
+
+            if (!isSelected) {
+              // Show as stub
+              const replyCard = document.createElement('div')
+              replyCard.className = 'reply-card'
+
+              const previewText = reply.record.text.substring(0, 50)
+              const truncatedText = previewText.length < reply.record.text.length ?
+                                  previewText + '...' : previewText
+
+              replyCard.innerHTML = `
+                <div class="reply-card-author">@${reply.author.handle}</div>
+                <div class="reply-card-text">${truncatedText}</div>
+              `
+
+              replyCard.addEventListener('click', () => {
+                // Replace the selected reply with this one
+                this.threadPath = this.threadPath.slice(0, index + 1)
+                this.selectPost(reply)
+              })
+
+              const treeLine = document.createElement('div')
+              treeLine.className = 'tree-line'
+
+              const cardWithLine = document.createElement('div')
+              cardWithLine.className = 'card-with-line'
+              cardWithLine.appendChild(treeLine)
+              cardWithLine.appendChild(replyCard)
+
+              branchContainer.appendChild(cardWithLine)
+            }
+          })
+
+          // Add a longer line for the selected path
+          const selectedBranch = document.createElement('div')
+          selectedBranch.className = 'card-with-line selected-branch'
+          selectedBranch.innerHTML = `
+            <div class="tree-line selected extended"></div>
+            <div class="selected-indicator">Selected path ↓</div>
+          `
+          branchContainer.appendChild(selectedBranch)
+        }
+
+        treeContainer.appendChild(branchContainer)
+        postContainer.appendChild(treeContainer)
+      }
+
+      threadView.appendChild(postContainer)
+    })
+
+    // Set the current reply context to the last post in the path
+    if (this.threadPath.length > 0) {
+      const currentPost = this.threadPath[this.threadPath.length - 1].post
+      if (this.editingReplyTo?.uri !== currentPost.uri) {
+        this.editingReplyTo = currentPost
+
+        // Update editor title and reply indicator
+        const editorTitle = document.getElementById('editor-title')
+        const replyingToDiv = document.getElementById('replying-to')
+        const replyingToText = document.getElementById('replying-to-text')
+
+        if (editorTitle) editorTitle.textContent = 'Create Reply'
+        if (replyingToDiv) replyingToDiv.style.display = 'block'
+        if (replyingToText) {
+          replyingToText.textContent = currentPost.record.text.substring(0, 100) +
+            (currentPost.record.text.length > 100 ? '...' : '')
+        }
+      }
+    }
+  }
+
+  private createPostElement(post: Post, isCurrent: boolean, pathIndex: number = -1): HTMLDivElement {
+    const postDiv = document.createElement('div')
+    postDiv.className = 'post-item' + (isCurrent ? ' current' : '')
+
+    // Make non-current posts clickable to reset the path
+    if (!isCurrent && pathIndex >= 0) {
+      postDiv.style.cursor = 'pointer'
+      postDiv.addEventListener('click', () => {
+        // Truncate the thread path to this point
+        this.threadPath = this.threadPath.slice(0, pathIndex + 1)
+        this.editingReplyTo = post
+        this.renderThreadView()
+        this.saveThreadState()
+      })
+    }
+
+    const headerDiv = document.createElement('div')
+    headerDiv.className = 'post-header'
+
+    const authorSpan = document.createElement('span')
+    authorSpan.className = 'post-author'
+    authorSpan.textContent = `@${post.author.handle}`
+
+    const dateAndLinkSpan = document.createElement('span')
+    dateAndLinkSpan.className = 'post-date-link'
+
+    const timeSpan = document.createElement('span')
+    timeSpan.className = 'post-time'
+    timeSpan.textContent = new Date(post.indexedAt).toLocaleString()
+
+    const postLink = document.createElement('a')
+    postLink.href = `https://bsky.app/profile/${post.author.handle}/post/${post.uri.split('/').pop()}`
+    postLink.target = '_blank'
+    postLink.className = 'post-external-link'
+    postLink.title = 'View on Bluesky'
+    postLink.innerHTML = ' 🦋'
+    postLink.addEventListener('click', (e) => e.stopPropagation())
+
+    dateAndLinkSpan.appendChild(timeSpan)
+    dateAndLinkSpan.appendChild(postLink)
+
+    headerDiv.appendChild(authorSpan)
+    headerDiv.appendChild(dateAndLinkSpan)
+
+    const textDiv = document.createElement('div')
+    textDiv.className = 'post-text'
+    textDiv.textContent = post.record.text
+
+    const actionsDiv = document.createElement('div')
+    actionsDiv.className = 'post-actions'
+    actionsDiv.innerHTML = `
+      💬 ${post.replyCount || 0} replies •
+      ❤️ ${post.likeCount || 0} likes •
+      🔄 ${post.repostCount || 0} reposts
+    `
+
+    postDiv.appendChild(headerDiv)
+    postDiv.appendChild(textDiv)
+    postDiv.appendChild(actionsDiv)
+
+    return postDiv
+  }
+
+  private async selectPost(post: Post) {
+    // Add the selected post to the thread path
+    const newNode: ThreadNode = {
+      post: post,
+      replies: [],
+      depth: this.threadPath.length
+    }
+    this.threadPath.push(newNode)
+
+    // Fetch replies for this post
+    await this.fetchRepliesForPost(post)
+
+    // Set this as the reply target
+    this.editingReplyTo = post
+
+    // Update editor title and reply indicator
+    const editorTitle = document.getElementById('editor-title')
+    const replyingToDiv = document.getElementById('replying-to')
+    const replyingToText = document.getElementById('replying-to-text')
+
+    if (editorTitle) editorTitle.textContent = 'Create Reply'
+    if (replyingToDiv) replyingToDiv.style.display = 'block'
+    if (replyingToText) replyingToText.textContent = post.record.text.substring(0, 100) + (post.record.text.length > 100 ? '...' : '')
+
+    // Re-render the thread view
+    this.renderThreadView()
+
+    // Save thread state
+    this.saveThreadState()
+  }
+
+  private setReplyTo(post: Post) {
+    this.editingReplyTo = post
+
+    const editorTitle = document.getElementById('editor-title')
+    const replyingToDiv = document.getElementById('replying-to')
+    const replyingToText = document.getElementById('replying-to-text')
+    const cancelReplyBtn = document.getElementById('cancel-reply')
+
+    if (editorTitle) editorTitle.textContent = 'Create Reply'
+    if (replyingToDiv) replyingToDiv.style.display = 'block'
+    if (replyingToText) replyingToText.textContent = post.record.text.substring(0, 100) + (post.record.text.length > 100 ? '...' : '')
+    if (cancelReplyBtn) cancelReplyBtn.style.display = 'inline-block'
+
+    // Clear the editor fields
+    const postText = document.getElementById('post-text') as HTMLTextAreaElement
+    const imageText = document.getElementById('image-text') as HTMLTextAreaElement
+    const choices = document.getElementById('choices') as HTMLTextAreaElement
+
+    if (postText) postText.value = ''
+    if (imageText) imageText.value = ''
+    if (choices) choices.value = ''
+
+    // Scroll to editor
+    document.getElementById('editor-section')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  private cancelReply() {
+    this.editingReplyTo = null
+
+    const editorTitle = document.getElementById('editor-title')
+    const replyingToDiv = document.getElementById('replying-to')
+    const cancelReplyBtn = document.getElementById('cancel-reply')
+
+    if (editorTitle) editorTitle.textContent = 'Create Scene'
+    if (replyingToDiv) replyingToDiv.style.display = 'none'
+    if (cancelReplyBtn) cancelReplyBtn.style.display = 'none'
+  }
+
+  private async fetchRepliesForPost(post: Post) {
+    try {
+      const thread = await this.agent.getPostThread({
+        uri: post.uri,
+        depth: 1, // Just get immediate replies
+      })
+
+      if (thread.data.thread && 'replies' in thread.data.thread) {
+        const replies = (thread.data.thread as any).replies || []
+
+        // Update the node in threadPath with replies
+        const currentNode = this.threadPath[this.threadPath.length - 1]
+        currentNode.replies = replies.map((r: any) => r.post).filter(Boolean)
+      }
+    } catch (error) {
+      console.error('Failed to fetch replies:', error)
+    }
+  }
+
+  private async loadExistingThread() {
+    const urlInput = document.getElementById('thread-url') as HTMLInputElement
+    const statusDiv = document.getElementById('load-status')!
+    const url = urlInput.value.trim()
+
+    if (!url) {
+      this.showStatus(statusDiv, 'Please enter a thread URL', 'error')
+      return
+    }
+
+    this.showStatus(statusDiv, 'Loading thread...', 'info')
+
+    // Parse the URL to get the AT URI
+    let atUri: string
+
+    if (url.startsWith('at://')) {
+      atUri = url
+    } else if (url.includes('bsky.app/profile/')) {
+      // Parse https://bsky.app/profile/{handle}/post/{postId}
+      const match = url.match(/profile\/([^/]+)\/post\/([^/?]+)/)
+      if (match) {
+        const [, handle, postId] = match
+
+        // We need to resolve the handle to a DID first
+        try {
+          const profile = await this.agent.getProfile({ actor: handle })
+          const did = profile.data.did
+          atUri = `at://${did}/app.bsky.feed.post/${postId}`
+        } catch (e) {
+          // If handle resolution fails, try using the handle directly
+          atUri = `at://${handle}/app.bsky.feed.post/${postId}`
+        }
+      } else {
+        this.showStatus(statusDiv, 'Invalid URL format', 'error')
+        return
+      }
+    } else {
+      this.showStatus(statusDiv, 'Invalid URL format', 'error')
+      return
+    }
+
+    try {
+      // Fetch the post thread
+      const thread = await this.agent.getPostThread({
+        uri: atUri,
+        depth: 100, // Get deep replies
+      })
+
+      if (!thread.data.thread || !('post' in thread.data.thread)) {
+        this.showStatus(statusDiv, 'Post not found', 'error')
+        return
+      }
+
+      const threadData = thread.data.thread as any
+      const rootPost = threadData.post
+
+      // Set as root
+      this.rootPost = rootPost
+      this.threadPath = [{
+        post: rootPost,
+        replies: threadData.replies?.map((r: any) => r.post).filter(Boolean) || [],
+        depth: 0,
+      }]
+
+      // Show thread view (keep load section visible)
+      document.getElementById('thread-view')!.style.display = 'block'
+
+      // Set the root post as the reply target
+      this.editingReplyTo = rootPost
+
+      // Update editor to show replying to root
+      const editorTitle = document.getElementById('editor-title')
+      const replyingToDiv = document.getElementById('replying-to')
+      const replyingToText = document.getElementById('replying-to-text')
+
+      if (editorTitle) editorTitle.textContent = 'Create Reply'
+      if (replyingToDiv) replyingToDiv.style.display = 'block'
+      if (replyingToText) replyingToText.textContent = rootPost.record.text.substring(0, 100) + (rootPost.record.text.length > 100 ? '...' : '')
+
+      // Render the thread
+      this.renderThreadView()
+
+      // Save thread state
+      this.saveThreadState()
+
+      // Clear the URL input after successful load
+      urlInput.value = ''
+
+      this.showStatus(statusDiv, 'Thread loaded successfully!', 'success')
+    } catch (error) {
+      console.error('Failed to load thread:', error)
+      this.showStatus(statusDiv, 'Failed to load thread', 'error')
+    }
+  }
+
+  private startFreshThread() {
+    // Clear any existing thread state
+    this.rootPost = null
+    this.threadPath = []
+    this.editingReplyTo = null
+
+    // Clear thread view
+    const threadView = document.getElementById('thread-view')
+    if (threadView) {
+      threadView.innerHTML = ''
+    }
+
+    // Reset editor to create mode
+    const editorTitle = document.getElementById('editor-title')
+    const replyingToDiv = document.getElementById('replying-to')
+
+    if (editorTitle) editorTitle.textContent = 'Create Scene'
+    if (replyingToDiv) replyingToDiv.style.display = 'none'
+
+    // Clear saved thread state
+    localStorage.removeItem('botadventure_thread')
   }
 
   private updateCharCounter() {
@@ -685,7 +1207,7 @@ class BotAdventureApp {
         const altText = this.combineSceneAndChoices(imageText.value, choices.value)
 
         // Post with image and optional post text
-        postResponse = await this.agent.post({
+        const postData: any = {
           text: postText.value.trim(), // Optional post text
           embed: {
             $type: 'app.bsky.embed.images',
@@ -699,7 +1221,23 @@ class BotAdventureApp {
             }],
           },
           createdAt: new Date().toISOString(),
-        })
+        }
+
+        // Add reply parameters if this is a reply
+        if (this.editingReplyTo) {
+          postData.reply = {
+            root: {
+              uri: this.rootPost ? this.rootPost.uri : this.editingReplyTo.uri,
+              cid: this.rootPost ? this.rootPost.cid : this.editingReplyTo.cid,
+            },
+            parent: {
+              uri: this.editingReplyTo.uri,
+              cid: this.editingReplyTo.cid,
+            },
+          }
+        }
+
+        postResponse = await this.agent.post(postData)
       } else {
         // Text-only post (no image)
         let textToPost = postText.value
@@ -717,10 +1255,26 @@ class BotAdventureApp {
         }
 
         // Post text only
-        postResponse = await this.agent.post({
+        const postData: any = {
           text: textToPost,
           createdAt: new Date().toISOString(),
-        })
+        }
+
+        // Add reply parameters if this is a reply
+        if (this.editingReplyTo) {
+          postData.reply = {
+            root: {
+              uri: this.rootPost ? this.rootPost.uri : this.editingReplyTo.uri,
+              cid: this.rootPost ? this.rootPost.cid : this.editingReplyTo.cid,
+            },
+            parent: {
+              uri: this.editingReplyTo.uri,
+              cid: this.editingReplyTo.cid,
+            },
+          }
+        }
+
+        postResponse = await this.agent.post(postData)
       }
 
       // Build the post URL
@@ -728,29 +1282,102 @@ class BotAdventureApp {
       const postId = postResponse.uri.split('/').pop()
       const postUrl = `https://bsky.app/profile/${handle}/post/${postId}`
 
-      // Show success with link
-      statusDiv.innerHTML = `
-        <div class="status success">
-          Posted successfully!
-          <a href="${postUrl}" target="_blank" style="color: #00bfff; text-decoration: underline;">
-            View on Bluesky →
-          </a>
-          <br/>
-          <small style="opacity: 0.7;">Replies analyzer auto-populated below ↓</small>
-        </div>
-      `
-      statusDiv.style.display = 'block'
-
-      // Auto-populate the reply analyzer with the new post URL
-      const postUrlInput = document.getElementById('post-url') as HTMLInputElement
-      if (postUrlInput) {
-        postUrlInput.value = postUrl
-        this.saveSceneData() // Save the URL so it persists across reloads
-        // Scroll to the reply section to show it was populated
-        document.getElementById('reply-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      // Create post object from response
+      const newPost: Post = {
+        uri: postResponse.uri,
+        cid: postResponse.cid,
+        author: {
+          did: this.agent.session?.did || '',
+          handle: handle,
+          displayName: handle,
+        },
+        record: {
+          text: postText.value.trim() || imageText.value.trim(),
+          createdAt: new Date().toISOString(),
+          reply: this.editingReplyTo ? {
+            root: {
+              uri: this.rootPost ? this.rootPost.uri : this.editingReplyTo.uri,
+              cid: this.rootPost ? this.rootPost.cid : this.editingReplyTo.cid,
+            },
+            parent: {
+              uri: this.editingReplyTo.uri,
+              cid: this.editingReplyTo.cid,
+            },
+          } : undefined,
+        },
+        replyCount: 0,
+        repostCount: 0,
+        likeCount: 0,
+        indexedAt: new Date().toISOString(),
       }
 
-      // Clear the form but keep the URL
+      if (this.editingReplyTo) {
+        // This was a reply - add it to the current node's replies and re-render
+        const currentNode = this.threadPath[this.threadPath.length - 1]
+        if (currentNode) {
+          if (!currentNode.replies) currentNode.replies = []
+          currentNode.replies.push(newPost)
+        }
+
+        // Clear reply mode
+        this.cancelReply()
+
+        // Ensure thread view is visible
+        const threadView = document.getElementById('thread-view')
+        if (threadView) threadView.style.display = 'block'
+
+        // Re-render thread view
+        this.renderThreadView()
+
+        // Save thread state
+        this.saveThreadState()
+
+        // Show success
+        statusDiv.innerHTML = `
+          <div class="status success">
+            Reply posted successfully!
+            <a href="${postUrl}" target="_blank" style="color: #00bfff; text-decoration: underline;">
+              View on Bluesky →
+            </a>
+          </div>
+        `
+      } else {
+        // This was a new top-level post - make it the root
+        this.rootPost = newPost
+        this.threadPath = [{
+          post: newPost,
+          replies: [],
+          depth: 0,
+        }]
+
+        // Show thread view
+        const threadView = document.getElementById('thread-view')
+        if (threadView) threadView.style.display = 'block'
+
+        // Now set this post as the reply target for future replies
+        this.editingReplyTo = newPost
+
+        // Fetch replies for the new post
+        await this.fetchRepliesForPost(newPost)
+
+        // Render the thread view
+        this.renderThreadView()
+
+        // Save thread state
+        this.saveThreadState()
+
+        // Show success
+        statusDiv.innerHTML = `
+          <div class="status success">
+            Scene posted successfully!
+            <a href="${postUrl}" target="_blank" style="color: #00bfff; text-decoration: underline;">
+              View on Bluesky →
+            </a>
+          </div>
+        `
+      }
+
+      // Clear the form after posting
       postText.value = ''
       imageText.value = ''
       choices.value = ''

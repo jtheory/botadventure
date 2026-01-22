@@ -11,16 +11,15 @@ interface AuthState {
   session?: any
 }
 
-interface SceneData {
-  text: string
-  choices: string[]
-  useImage: boolean
-}
-
 class BotAdventureApp {
   private agent: BskyAgent
   private authState: AuthState | null = null
   private isAuthenticated = false
+  private lastImageText = ''
+  private lastChoicesText = ''
+  private lastTextChangeTime = 0
+  private previewRefreshTimer: NodeJS.Timeout | null = null
+  private isGeneratingPreview = false
 
   constructor() {
     this.agent = new BskyAgent({
@@ -93,57 +92,79 @@ class BotAdventureApp {
 
     app.innerHTML = `
       <div class="container">
-        <h1>🎮 BotAdventure Author</h1>
+        <h1 class="main-title">🎮 BotAdventure Author</h1>
 
-        <div class="auth-section">
-          <h2>Bluesky Authentication</h2>
-          <form id="auth-form" class="auth-form">
-            <div class="form-group">
-              <label for="handle">Handle (e.g., user.bsky.social)</label>
-              <input type="text" id="handle" placeholder="your-handle.bsky.social" required />
-            </div>
+        <div id="auth-section" class="auth-section">
+          <div id="auth-form-container">
+            <h2>Bluesky Authentication</h2>
+            <form id="auth-form" class="auth-form">
+              <div class="form-group">
+                <label for="handle">Handle (e.g., user.bsky.social)</label>
+                <input type="text" id="handle" placeholder="your-handle.bsky.social" required />
+              </div>
 
-            <div class="form-group">
-              <label for="app-password">App Password</label>
-              <input type="password" id="app-password" placeholder="xxxx-xxxx-xxxx-xxxx" required />
-              <small style="opacity: 0.7">Create at Settings → Advanced → App passwords</small>
-            </div>
+              <div class="form-group">
+                <label for="app-password">App Password</label>
+                <input type="password" id="app-password" placeholder="xxxx-xxxx-xxxx-xxxx" required />
+                <small style="opacity: 0.7">Create at Settings → Advanced → App passwords</small>
+              </div>
 
-            <button type="submit" id="auth-button">Connect</button>
-          </form>
+              <button type="submit" id="auth-button">Connect</button>
+            </form>
 
-          <div id="auth-status"></div>
+            <div id="auth-status"></div>
+          </div>
+
+          <div id="auth-connected" class="auth-connected" style="display: none;">
+            <span class="auth-handle">
+              <span style="opacity: 0.7;">Connected as</span>
+              <strong id="connected-handle">@handle</strong>
+            </span>
+            <a href="#" id="logout-button" class="logout-link">Logout</a>
+          </div>
         </div>
 
-        <div id="post-section" style="display: none;">
-          <h2>Create Scene</h2>
+        <div id="post-section" class="split-layout" style="display: none;">
+          <div class="editor-panel">
+            <h2>Create Scene</h2>
 
-          <div class="form-group">
-            <label for="post-text">Post Text (optional, ${BLUESKY_CHAR_LIMIT} chars)</label>
-            <textarea id="post-text" placeholder="Optional text for the post..." rows="3"></textarea>
-            <div id="char-counter" class="char-counter">0 / ${BLUESKY_CHAR_LIMIT}</div>
+            <div class="form-group">
+              <label for="post-text">Post Text (optional, ${BLUESKY_CHAR_LIMIT} chars)</label>
+              <textarea id="post-text" placeholder="Optional text for the post..." rows="3"></textarea>
+              <div id="char-counter" class="char-counter">0 / ${BLUESKY_CHAR_LIMIT}</div>
+            </div>
+
+            <div class="form-group">
+              <label for="image-text">Image Text (optional, creates an image if filled)</label>
+              <textarea id="image-text" placeholder="Text that will be rendered as an image..." rows="5"></textarea>
+            </div>
+
+            <div class="form-group">
+              <label for="choices">Choices (optional, one per line)</label>
+              <textarea id="choices" placeholder="A) Go left&#10;B) Go right&#10;C) Turn back" rows="4"></textarea>
+              <small style="opacity: 0.7">Choices go in the image if image text exists, otherwise in post text</small>
+            </div>
+
+            <div class="button-group">
+              <button id="post-button" class="primary-button">Post to Bluesky</button>
+            </div>
+
+            <div id="post-status"></div>
           </div>
 
-          <div class="form-group">
-            <label for="image-text">Image Text (optional, creates an image if filled)</label>
-            <textarea id="image-text" placeholder="Text that will be rendered as an image..." rows="5"></textarea>
+          <div class="preview-panel">
+            <div class="preview-header">
+              <h3>Live Preview</h3>
+              <div id="preview-status" class="preview-status"></div>
+            </div>
+            <div id="scene-preview" class="scene-preview">
+              <div id="preview-content">
+                <div style="text-align: center; opacity: 0.5; padding: 40px;">
+                  Start typing to see a preview
+                </div>
+              </div>
+            </div>
           </div>
-
-          <div class="form-group">
-            <label for="choices">Choices (optional, one per line)</label>
-            <textarea id="choices" placeholder="A) Go left&#10;B) Go right&#10;C) Turn back" rows="4"></textarea>
-            <small style="opacity: 0.7">Choices go in the image if image text exists, otherwise in post text</small>
-          </div>
-
-          <button id="preview-button">Preview Scene</button>
-          <button id="post-button">Post to Bluesky</button>
-
-          <div id="scene-preview" class="scene-preview" style="display: none;">
-            <h3>Preview:</h3>
-            <div id="preview-content"></div>
-          </div>
-
-          <div id="post-status"></div>
         </div>
 
         <div id="reply-section" style="display: none;">
@@ -182,11 +203,19 @@ class BotAdventureApp {
       this.handleAuth()
     })
 
+    // Logout link
+    const logoutButton = document.getElementById('logout-button')
+    logoutButton?.addEventListener('click', (e) => {
+      e.preventDefault()
+      this.handleLogout()
+    })
+
     // Post text input
     const postText = document.getElementById('post-text') as HTMLTextAreaElement
     postText.addEventListener('input', () => {
       this.updateCharCounter()
       this.saveSceneData()
+      this.schedulePreviewRefresh()
     })
 
     // Image text input
@@ -194,6 +223,8 @@ class BotAdventureApp {
     imageText.addEventListener('input', () => {
       this.updateCharCounter()
       this.saveSceneData()
+      this.lastTextChangeTime = Date.now()
+      this.schedulePreviewRefresh()
     })
 
     // Choices input
@@ -201,12 +232,8 @@ class BotAdventureApp {
     choices.addEventListener('input', () => {
       this.updateCharCounter()
       this.saveSceneData()
-    })
-
-    // Preview button
-    const previewButton = document.getElementById('preview-button')
-    previewButton?.addEventListener('click', async () => {
-      await this.previewScene()
+      this.lastTextChangeTime = Date.now()
+      this.schedulePreviewRefresh()
     })
 
     // Post button
@@ -229,6 +256,63 @@ class BotAdventureApp {
 
     // Load any saved scene data
     this.loadSceneData()
+
+    // Initial preview if we have content
+    setTimeout(() => {
+      this.updatePreview()
+    }, 100)
+  }
+
+  private handleLogout() {
+    // Clear auth state
+    this.authState = null
+    this.isAuthenticated = false
+    localStorage.removeItem('botadventure_auth')
+
+    // Clear scene data
+    localStorage.removeItem('botadventure_scene')
+
+    // Reset UI
+    const authFormContainer = document.getElementById('auth-form-container')
+    const authConnected = document.getElementById('auth-connected')
+    const postSection = document.getElementById('post-section')
+    const replySection = document.getElementById('reply-section')
+    const handleInput = document.getElementById('handle') as HTMLInputElement
+    const passwordInput = document.getElementById('app-password') as HTMLInputElement
+
+    if (authFormContainer) authFormContainer.style.display = 'block'
+    if (authConnected) authConnected.style.display = 'none'
+    if (postSection) postSection.style.display = 'none'
+    if (replySection) replySection.style.display = 'none'
+
+    // Clear form inputs
+    if (handleInput) handleInput.value = ''
+    if (passwordInput) passwordInput.value = ''
+
+    // Clear scene data fields
+    const postText = document.getElementById('post-text') as HTMLTextAreaElement
+    const imageText = document.getElementById('image-text') as HTMLTextAreaElement
+    const choices = document.getElementById('choices') as HTMLTextAreaElement
+    const postUrl = document.getElementById('post-url') as HTMLInputElement
+
+    if (postText) postText.value = ''
+    if (imageText) imageText.value = ''
+    if (choices) choices.value = ''
+    if (postUrl) postUrl.value = ''
+
+    // Clear preview
+    const previewContent = document.getElementById('preview-content')
+    if (previewContent) {
+      previewContent.innerHTML = '<div style="text-align: center; opacity: 0.5; padding: 40px;">Start typing to see a preview</div>'
+    }
+
+    // Clear status
+    const statusDiv = document.getElementById('auth-status')!
+    statusDiv.innerHTML = ''
+
+    // Reset preview state
+    this.lastImageText = ''
+    this.lastChoicesText = ''
   }
 
   private async handleAuth() {
@@ -262,6 +346,7 @@ class BotAdventureApp {
       this.isAuthenticated = true
 
       this.showStatus(statusDiv, `Connected as @${actualHandle}`, 'success')
+      this.showAuthConnected(actualHandle)
       this.showPostSection()
 
       // Clear password field for security
@@ -291,10 +376,11 @@ class BotAdventureApp {
       this.saveAuthState()
 
       this.isAuthenticated = true
-      this.showStatus(statusDiv, `Connected as @${actualHandle}`, 'success')
+      // Don't show status in the form container since we're hiding it
+      this.showAuthConnected(actualHandle)
       this.showPostSection()
 
-      // Pre-fill the handle
+      // Pre-fill the handle (in case user returns to form)
       const handleInput = document.getElementById('handle') as HTMLInputElement
       handleInput.value = actualHandle
     } catch (error) {
@@ -305,15 +391,30 @@ class BotAdventureApp {
     }
   }
 
+  private showAuthConnected(handle: string) {
+    const authFormContainer = document.getElementById('auth-form-container')
+    const authConnected = document.getElementById('auth-connected')
+    const connectedHandle = document.getElementById('connected-handle')
+
+    if (authFormContainer) authFormContainer.style.display = 'none'
+    if (authConnected) authConnected.style.display = 'flex'
+    if (connectedHandle) connectedHandle.textContent = `@${handle}`
+  }
+
   private showPostSection() {
     const postSection = document.getElementById('post-section')
     const replySection = document.getElementById('reply-section')
     if (postSection) {
-      postSection.style.display = 'block'
+      postSection.style.display = 'grid'  // Changed to grid for split layout
     }
     if (replySection) {
       replySection.style.display = 'block'
     }
+
+    // Trigger initial preview update
+    setTimeout(() => {
+      this.updatePreview()
+    }, 100)
   }
 
   private updateCharCounter() {
@@ -369,87 +470,175 @@ class BotAdventureApp {
     return `${sceneText}\n\n${choices.join('\n')}`
   }
 
-  private async previewScene() {
+  private schedulePreviewRefresh() {
+    // Clear any existing timer
+    if (this.previewRefreshTimer) {
+      clearTimeout(this.previewRefreshTimer)
+    }
+
+    // Immediately update text preview (cheap)
+    this.updatePreview()
+
+    // Schedule image generation after 1 second of no typing
+    this.previewRefreshTimer = setTimeout(() => {
+      const imageText = document.getElementById('image-text') as HTMLTextAreaElement
+      const choices = document.getElementById('choices') as HTMLTextAreaElement
+
+      if (imageText.value.trim()) {
+        // Check if image text or choices have changed
+        if (imageText.value !== this.lastImageText || choices.value !== this.lastChoicesText) {
+          this.regenerateImagePreview()
+        }
+      }
+    }, 1000)
+  }
+
+  private async updatePreview() {
     const postText = document.getElementById('post-text') as HTMLTextAreaElement
     const imageText = document.getElementById('image-text') as HTMLTextAreaElement
     const choices = document.getElementById('choices') as HTMLTextAreaElement
-    const previewDiv = document.getElementById('scene-preview')!
     const previewContent = document.getElementById('preview-content')!
+    const previewStatus = document.getElementById('preview-status')!
 
     const choicesList = choices.value
       .split('\n')
       .map(c => c.trim())
       .filter(c => c.length > 0)
 
-    previewDiv.style.display = 'block'
-
-    // Determine what will be posted
-    if (imageText.value.trim()) {
-      // Image post - generate and show the image
+    // If no content at all
+    if (!postText.value.trim() && !imageText.value.trim() && choicesList.length === 0) {
       previewContent.innerHTML = `
-        <div class="scene-canvas">
-          <h4 style="margin-bottom: 10px; opacity: 0.7;">Generating image preview...</h4>
+        <div style="text-align: center; opacity: 0.5; padding: 40px;">
+          Start typing to see a preview
         </div>
       `
+      previewStatus.innerHTML = ''
+      return
+    }
 
-      try {
-        const imageResult = await this.generateSceneImage(imageText.value, choicesList)
-        const imageUrl = URL.createObjectURL(imageResult.blob)
-        const altText = this.combineSceneAndChoices(imageText.value, choices.value)
-
-        // Warn if content is very short
-        const contentWarning = imageResult.dimensions.height < 400
-          ? '<div style="color: orange; margin-top: 10px;">⚠️ Short content may look sparse. Consider adding more text.</div>'
-          : ''
-
-        previewContent.innerHTML = `
-          <div class="scene-canvas">
-            <h4 style="margin-bottom: 10px; opacity: 0.7;">Post Preview:</h4>
-            ${postText.value.trim() ? `
-              <div style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-                <strong>Post text:</strong><br/>
-                <div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">
-                  ${postText.value.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
-                </div>
-              </div>
-            ` : ''}
-            <div>
-              <strong>Image (${imageResult.dimensions.width}×${imageResult.dimensions.height}px):</strong><br/>
-              <img src="${imageUrl}" style="width: ${imageResult.dimensions.width}px; margin-top: 10px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" />
-            </div>
-            <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.7;">
-              Alt text: ${altText.length} characters
-            </div>
-            ${contentWarning}
-          </div>
-        `
-      } catch (error) {
-        previewContent.innerHTML = `
-          <div class="scene-canvas">
-            <div class="status error">Failed to generate image preview: ${error}</div>
-          </div>
-        `
-      }
-    } else {
-      // Text-only post
+    // If text-only post
+    if (!imageText.value.trim()) {
       let fullText = postText.value
       if (choicesList.length > 0) {
         fullText = postText.value + (postText.value ? '\n\n' : '') + choicesList.join('\n')
       }
 
       previewContent.innerHTML = `
-        <div class="scene-canvas">
-          <h4 style="margin-bottom: 10px; opacity: 0.7;">Text Post Preview:</h4>
-          <div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">
+        <div class="text-preview">
+          <h4 style="margin-bottom: 10px; opacity: 0.7; font-size: 0.9em;">Text Post:</h4>
+          <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">
             ${fullText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
           </div>
-          <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.7;">
+          <div style="margin-top: 10px; font-size: 0.85rem; opacity: 0.5;">
             ${fullText.length} / ${BLUESKY_CHAR_LIMIT} characters
           </div>
         </div>
       `
+      previewStatus.innerHTML = ''
+      return
+    }
+
+    // Has image text - show placeholder if we don't have a generated image yet
+    if (!this.lastImageText || imageText.value !== this.lastImageText || choices.value !== this.lastChoicesText) {
+      // Show existing preview with "will regenerate" notice
+      if (previewContent.querySelector('img')) {
+        previewStatus.innerHTML = '<span style="color: orange;">⏱ Image will regenerate...</span>'
+      } else {
+        previewContent.innerHTML = `
+          <div class="text-preview">
+            <h4 style="margin-bottom: 10px; opacity: 0.7; font-size: 0.9em;">Image Post:</h4>
+            ${postText.value.trim() ? `
+              <div style="margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                <strong style="font-size: 0.85em; opacity: 0.7;">Post text:</strong><br/>
+                <div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">
+                  ${postText.value.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+                </div>
+              </div>
+            ` : ''}
+            <div style="padding: 20px; background: rgba(255,255,255,0.03); border-radius: 8px; text-align: center; opacity: 0.5;">
+              Generating image preview...
+            </div>
+          </div>
+        `
+      }
     }
   }
+
+  private async regenerateImagePreview() {
+    if (this.isGeneratingPreview) return
+
+    const imageText = document.getElementById('image-text') as HTMLTextAreaElement
+    const choices = document.getElementById('choices') as HTMLTextAreaElement
+    const postText = document.getElementById('post-text') as HTMLTextAreaElement
+    const previewContent = document.getElementById('preview-content')!
+    const previewStatus = document.getElementById('preview-status')!
+
+    // Only regenerate if we have image text and it's changed
+    if (!imageText.value.trim()) return
+
+    // Check if content actually changed
+    if (imageText.value === this.lastImageText && choices.value === this.lastChoicesText) {
+      return
+    }
+
+    this.isGeneratingPreview = true
+    previewStatus.innerHTML = '<span style="color: #00bfff;">🎨 Generating image...</span>'
+
+    const choicesList = choices.value
+      .split('\n')
+      .map(c => c.trim())
+      .filter(c => c.length > 0)
+
+    try {
+      const imageResult = await this.generateSceneImage(imageText.value, choicesList)
+      const imageUrl = URL.createObjectURL(imageResult.blob)
+      const altText = this.combineSceneAndChoices(imageText.value, choices.value)
+
+      // Update last values
+      this.lastImageText = imageText.value
+      this.lastChoicesText = choices.value
+
+      const contentWarning = imageResult.dimensions.height < 400
+        ? '<div style="color: orange; margin-top: 10px; font-size: 0.85em;">⚠️ Short content may look sparse. Consider adding more text.</div>'
+        : ''
+
+      previewContent.innerHTML = `
+        <div class="image-preview">
+          <h4 style="margin-bottom: 10px; opacity: 0.7; font-size: 0.9em;">Image Post:</h4>
+          ${postText.value.trim() ? `
+            <div style="margin-bottom: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+              <strong style="font-size: 0.85em; opacity: 0.7;">Post text:</strong><br/>
+              <div style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif;">
+                ${postText.value.replace(/</g, '&lt;').replace(/>/g, '&gt;')}
+              </div>
+            </div>
+          ` : ''}
+          <div>
+            <img src="${imageUrl}" style="width: 100%; max-width: ${imageResult.dimensions.width}px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);" />
+          </div>
+          <div style="margin-top: 10px; display: flex; justify-content: space-between; font-size: 0.8rem; opacity: 0.5;">
+            <span>${imageResult.dimensions.width}×${imageResult.dimensions.height}px</span>
+            <span>Alt: ${altText.length} chars</span>
+          </div>
+          ${contentWarning}
+        </div>
+      `
+      previewStatus.innerHTML = '<span style="color: #00ff00;">✓ Preview updated</span>'
+      setTimeout(() => {
+        previewStatus.innerHTML = ''
+      }, 2000)
+    } catch (error) {
+      previewContent.innerHTML = `
+        <div class="text-preview">
+          <div class="status error">Failed to generate image preview: ${error}</div>
+        </div>
+      `
+      previewStatus.innerHTML = '<span style="color: red;">❌ Generation failed</span>'
+    } finally {
+      this.isGeneratingPreview = false
+    }
+  }
+
 
   private async postToBluesky() {
     if (!this.isAuthenticated) {
@@ -717,7 +906,7 @@ class BotAdventureApp {
         return
       }
 
-      const post = thread.data.thread
+      const post: any = thread.data.thread
 
       // Extract post content
       const postAuthor = post.post?.author?.handle || 'unknown'
@@ -727,7 +916,7 @@ class BotAdventureApp {
       const postTime = post.post?.record?.createdAt ? new Date(post.post.record.createdAt).toLocaleString() : ''
       const postEmbed = post.post?.embed
 
-      const replies = post.replies || []
+      const replies: any[] = post.replies || []
 
       // Count votes (A), B), C) patterns)
       const votes: Record<string, number> = {}
@@ -742,7 +931,6 @@ class BotAdventureApp {
             const text = reply.post.record?.text || ''
             const author = reply.post.author?.handle || 'unknown'
             const likes = reply.post.likeCount || 0
-            const reposts = reply.post.repostCount || 0
 
             // Check for vote patterns: A), (A), A:, A., or just A at start
             const voteMatch = text.match(/^([A-Z])[\)\:\.]|^\(([A-Z])\)|^([A-Z])(?:\s|$)/i)
@@ -832,7 +1020,7 @@ class BotAdventureApp {
         listDiv.innerHTML = `
           <div style="max-height: 500px; overflow-y: auto; padding: 15px; background: rgba(255,255,255,0.02); border-radius: 4px;">
             <h4 style="margin-bottom: 15px;">Replies (${totalReplyCount} total)</h4>
-            ${sortedReplies.map((reply, index) => `
+            ${sortedReplies.map((reply) => `
               <div style="margin: 10px 0; padding: 12px; background: rgba(255,255,255,0.04); border-radius: 6px; border-left: 3px solid ${reply.likes > 0 ? '#00bfff' : 'rgba(255,255,255,0.1)'};">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
                   <span style="opacity: 0.9; font-weight: 500;">@${reply.author}</span>

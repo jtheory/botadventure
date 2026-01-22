@@ -25,15 +25,17 @@ body {
 }
 
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
+  margin: 0;
   padding: 2rem;
+  width: 100%;
 }
 
 .container {
   display: flex;
   flex-direction: column;
   gap: 2rem;
+  width: 100%;
+  padding: 0 1rem;
 }
 
 /* Auth Section */
@@ -43,6 +45,7 @@ body {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   transition: all 0.3s ease;
+  margin-bottom: 2rem;
 }
 
 .auth-form {
@@ -159,8 +162,9 @@ button:disabled {
 /* Split Layout */
 .split-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 515px 515px;
   gap: 2rem;
+  justify-content: center;
   align-items: start;
 }
 
@@ -169,6 +173,7 @@ button:disabled {
   padding: 1.5rem;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  max-width: 515px;
 }
 
 .preview-panel {
@@ -178,6 +183,7 @@ button:disabled {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   overflow: hidden;
+  max-width: 515px;
 }
 
 .preview-header {
@@ -228,6 +234,21 @@ button:disabled {
   font-weight: 500;
 }
 
+.secondary-button {
+  padding: 0.5rem 1rem;
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.secondary-button:hover {
+  background-color: #5a6268;
+}
+
 .main-title {
   text-align: center;
   margin-bottom: 2rem;
@@ -254,6 +275,7 @@ button:disabled {
   background: rgba(255, 255, 255, 0.03);
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  width: 100%;
 }
 
 .thread-post-container {
@@ -263,11 +285,12 @@ button:disabled {
 
 .post-item {
   padding: 15px;
-  margin: 10px 0;
+  margin: 10px auto;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   transition: all 0.2s ease;
+  max-width: 515px;
 }
 
 .post-item:not(.current):hover {
@@ -311,6 +334,56 @@ button:disabled {
   gap: 1rem;
 }
 
+/* Post Images */
+.post-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.post-image-container {
+  flex: 1 1 auto;
+  max-width: 400px; /* Match mobile-oriented sizing */
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(128, 128, 128, 0.1); /* Subtle placeholder background */
+}
+
+.post-image {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  border-radius: 8px;
+  transition: opacity 0.2s;
+}
+
+.post-image:hover {
+  opacity: 0.9;
+}
+
+/* Single image can use full mobile width */
+.post-images:has(> :only-child) .post-image-container {
+  max-width: min(100%, 450px); /* Slightly less than Bluesky's 515px to account for padding */
+}
+
+/* For multiple images in a grid */
+.post-images:has(> :nth-child(2)) .post-image-container {
+  flex: 1 1 calc(50% - 0.25rem);
+  max-width: calc(50% - 0.25rem);
+}
+
+.post-images:has(> :nth-child(3)) .post-image-container {
+  flex: 1 1 calc(33.33% - 0.33rem);
+  max-width: calc(33.33% - 0.33rem);
+}
+
+.post-images:has(> :nth-child(4)) .post-image-container {
+  flex: 1 1 calc(50% - 0.25rem);
+  max-width: calc(50% - 0.25rem);
+}
+
 .reply-button {
   margin-left: auto;
   padding: 4px 12px;
@@ -329,8 +402,9 @@ button:disabled {
 
 /* Inverted Tree Structure */
 .inverted-tree {
-  margin: 20px 0;
+  margin: 20px auto;
   padding: 0 20px;
+  max-width: 100%;
 }
 
 .branch-container {
@@ -446,8 +520,9 @@ button:disabled {
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
-  max-width: 200px;
-  min-width: 150px;
+  max-width: 140px;
+  min-width: 100px;
+  position: relative;
 }
 
 .reply-card:hover {
@@ -461,17 +536,37 @@ button:disabled {
   border-color: #00bfff;
 }
 
+.reply-card.more-replies-stub {
+  opacity: 0.6;
+  cursor: default;
+  font-style: italic;
+}
+
+.reply-card.more-replies-stub:hover {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: none;
+}
+
 .reply-card-author {
   font-size: 0.8rem;
   font-weight: bold;
   color: #00bfff;
   margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .reply-card-text {
   font-size: 0.85rem;
   opacity: 0.8;
   line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 #main-content {
@@ -482,9 +577,9 @@ button:disabled {
 
 
 /* Mobile responsive */
-@media (max-width: 1024px) {
+@media (max-width: 1100px) {
   .split-layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: 515px;
   }
 
   .preview-panel {

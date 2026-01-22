@@ -4,6 +4,7 @@ import { Post, SceneData } from '../types'
 export interface SceneEditorCallbacks {
   onPost: (text: string, imageText: string, choices: string) => void
   onSceneDataChange: (data: SceneData) => void
+  onCancelReply?: () => void
 }
 
 export class SceneEditor {
@@ -82,32 +83,27 @@ export class SceneEditor {
     if (cancelReplyBtn) {
       cancelReplyBtn.addEventListener('click', () => {
         this.clearReplyContext()
+        // Notify the main app to clear reply state
+        if (this.callbacks.onCancelReply) {
+          this.callbacks.onCancelReply()
+        }
       })
     }
   }
 
-  setReplyContext(post: Post): void {
+  setReplyContext(_post: Post): void {
     const editorTitle = document.getElementById('editor-title')
-    const replyingToDiv = document.getElementById('replying-to')
-    const replyingToText = document.getElementById('replying-to-text')
     const cancelReplyBtn = document.getElementById('cancel-reply')
 
     if (editorTitle) editorTitle.textContent = 'Create Reply'
-    if (replyingToDiv) replyingToDiv.style.display = 'block'
-    if (replyingToText) {
-      replyingToText.textContent = post.record.text.substring(0, 100) +
-        (post.record.text.length > 100 ? '...' : '')
-    }
     if (cancelReplyBtn) cancelReplyBtn.style.display = 'inline-block'
   }
 
   clearReplyContext(): void {
     const editorTitle = document.getElementById('editor-title')
-    const replyingToDiv = document.getElementById('replying-to')
     const cancelReplyBtn = document.getElementById('cancel-reply')
 
     if (editorTitle) editorTitle.textContent = 'Create Scene'
-    if (replyingToDiv) replyingToDiv.style.display = 'none'
     if (cancelReplyBtn) cancelReplyBtn.style.display = 'none'
   }
 
@@ -220,10 +216,8 @@ export class SceneEditor {
     const postValue = postText?.value || ''
     const choicesValue = choices?.value || ''
 
-    // Use image text if provided, otherwise use post text
-    const displayText = imageValue || postValue
-
-    if (!displayText) {
+    // Check if there's any content to preview
+    if (!imageValue && !postValue) {
       previewContent.innerHTML = `
         <div style="text-align: center; opacity: 0.5; padding: 40px;">
           Start typing to see a preview
@@ -235,7 +229,20 @@ export class SceneEditor {
       return
     }
 
-    // Check if we need to regenerate the preview
+    // Build preview with both post text and image
+    let previewHtml = ''
+
+    // Add post text if present
+    if (postValue) {
+      const combinedText = this.combineSceneAndChoices(postValue, choicesValue)
+      previewHtml += `
+        <div style="white-space: pre-wrap; font-family: system-ui; line-height: 1.5; margin-bottom: 1rem;">
+          ${this.escapeHtml(combinedText)}
+        </div>
+      `
+    }
+
+    // Check if we need to regenerate the image preview
     const choicesList = choicesValue
       .split('\n')
       .map(c => c.trim())
@@ -247,14 +254,9 @@ export class SceneEditor {
       await this.regenerateImagePreview(imageValue, choicesList)
       this.lastImageText = imageValue
       this.lastChoicesText = choicesValue
-    } else if (!imageValue) {
+    } else if (!imageValue && previewHtml) {
       // Text-only preview
-      const combinedText = this.combineSceneAndChoices(postValue, choicesValue)
-      previewContent.innerHTML = `
-        <div style="white-space: pre-wrap; font-family: system-ui; line-height: 1.5;">
-          ${this.escapeHtml(combinedText)}
-        </div>
-      `
+      previewContent.innerHTML = previewHtml
     }
 
     if (statusDiv) {
@@ -272,6 +274,7 @@ export class SceneEditor {
 
     const previewContent = document.getElementById('preview-content')
     const statusDiv = document.getElementById('preview-status')
+    const postText = document.getElementById('post-text') as HTMLTextAreaElement
 
     if (!previewContent) {
       this.isGeneratingPreview = false
@@ -284,12 +287,35 @@ export class SceneEditor {
         statusDiv.style.color = '#1976D2'
       }
 
-      const previewElement = await this.imageGenerator.generatePreviewElement(
+      // Use the same image generation as posting to ensure consistency
+      const imageResult = await this.imageGenerator.generateSceneImage(
         imageText,
         choices
       )
 
+      // Convert blob to data URL for preview
+      const reader = new FileReader()
+      const dataUrl = await new Promise<string>((resolve) => {
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(imageResult.blob)
+      })
+
+      const previewElement = document.createElement('img')
+      previewElement.src = dataUrl
+      previewElement.style.cssText = 'max-width: 100%; border-radius: 8px;'
+
+      // Clear and rebuild preview with both text and image
       previewContent.innerHTML = ''
+
+      // Add post text first if present
+      if (postText?.value) {
+        const textDiv = document.createElement('div')
+        textDiv.style.cssText = 'white-space: pre-wrap; font-family: system-ui; line-height: 1.5; margin-bottom: 1rem;'
+        textDiv.textContent = postText.value
+        previewContent.appendChild(textDiv)
+      }
+
+      // Then add the image
       previewContent.appendChild(previewElement)
 
       if (statusDiv) {

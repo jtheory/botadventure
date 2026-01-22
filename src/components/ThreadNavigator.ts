@@ -13,7 +13,7 @@ export class ThreadNavigator {
     private callbacks: ThreadNavigatorCallbacks
   ) {}
 
-  render(threadPath: ThreadNode[], editingReplyTo: Post | null): void {
+  render(threadPath: ThreadNode[], _editingReplyTo: Post | null): void {
     const threadView = document.getElementById('thread-view')
     if (!threadView) return
 
@@ -31,10 +31,6 @@ export class ThreadNavigator {
       threadView.appendChild(postContainer)
     })
 
-    // Update editor context for the last post
-    if (threadPath.length > 0 && editingReplyTo) {
-      this.updateEditorContext(editingReplyTo)
-    }
   }
 
   private createPostContainer(
@@ -123,8 +119,46 @@ export class ThreadNavigator {
       🔄 ${post.repostCount || 0} reposts
     `
 
+    // Build post structure
     postDiv.appendChild(headerDiv)
     postDiv.appendChild(textDiv)
+
+    // Add images if present
+    if (post.embed && post.embed.$type === 'app.bsky.embed.images#view' && post.embed.images) {
+      const imagesDiv = document.createElement('div')
+      imagesDiv.className = 'post-images'
+
+      post.embed.images.forEach((image: any) => {
+        const imgContainer = document.createElement('div')
+        imgContainer.className = 'post-image-container'
+
+        const img = document.createElement('img')
+        img.src = image.thumb || image.fullsize
+        img.alt = image.alt || ''
+        img.className = 'post-image'
+        img.loading = 'lazy'
+
+        // Set aspect ratio if available to maintain proper dimensions
+        if (image.aspectRatio) {
+          imgContainer.style.aspectRatio = `${image.aspectRatio.width} / ${image.aspectRatio.height}`
+        }
+
+        // Make image clickable to view full size
+        if (image.fullsize) {
+          img.style.cursor = 'pointer'
+          img.addEventListener('click', (e) => {
+            e.stopPropagation()
+            window.open(image.fullsize, '_blank')
+          })
+        }
+
+        imgContainer.appendChild(img)
+        imagesDiv.appendChild(imgContainer)
+      })
+
+      postDiv.appendChild(imagesDiv)
+    }
+
     postDiv.appendChild(actionsDiv)
 
     return postDiv
@@ -141,11 +175,22 @@ export class ThreadNavigator {
     const branchContainer = document.createElement('div')
     branchContainer.className = 'branch-container'
 
-    // Add existing replies as stubs
-    node.replies.forEach((reply) => {
+    // Limit to 10 replies, show "more" stub if needed
+    const maxReplies = 10
+    const visibleReplies = node.replies.slice(0, maxReplies)
+    const hiddenCount = node.replies.length - maxReplies
+
+    // Add visible replies as stubs
+    visibleReplies.forEach((reply) => {
       const replyCard = this.createReplyCard(reply, false)
       branchContainer.appendChild(replyCard)
     })
+
+    // Add "more" stub if there are hidden replies
+    if (hiddenCount > 0) {
+      const moreStub = this.createMoreRepliesStub(hiddenCount)
+      branchContainer.appendChild(moreStub)
+    }
 
     // Add editor connection as a branch alongside replies
     const editorBranch = document.createElement('div')
@@ -178,11 +223,23 @@ export class ThreadNavigator {
     const branchContainer = document.createElement('div')
     branchContainer.className = 'branch-container'
 
-    // Show all replies
+    // Limit to 10 non-selected replies
+    const maxReplies = 10
+    let nonSelectedCount = 0
+    let totalNonSelected = 0
+
+    // First count total non-selected
+    node.replies.forEach((reply) => {
+      if (reply.uri !== selectedReply.uri) {
+        totalNonSelected++
+      }
+    })
+
+    // Show up to maxReplies non-selected replies
     node.replies.forEach((reply) => {
       const isSelected = reply.uri === selectedReply.uri
 
-      if (!isSelected) {
+      if (!isSelected && nonSelectedCount < maxReplies) {
         // Show as stub
         const replyCard = this.createReplyCard(reply, false, () => {
           // Reset path to this node and select the different reply
@@ -190,8 +247,16 @@ export class ThreadNavigator {
           setTimeout(() => this.callbacks.onPostSelect(reply), 50)
         })
         branchContainer.appendChild(replyCard)
+        nonSelectedCount++
       }
     })
+
+    // Add "more" stub if there are hidden replies
+    const hiddenCount = totalNonSelected - nonSelectedCount
+    if (hiddenCount > 0) {
+      const moreStub = this.createMoreRepliesStub(hiddenCount)
+      branchContainer.appendChild(moreStub)
+    }
 
     // Add a longer line for the selected path
     const selectedBranch = document.createElement('div')
@@ -228,6 +293,27 @@ export class ThreadNavigator {
     return treeContainer
   }
 
+  private createMoreRepliesStub(count: number): HTMLElement {
+    const moreCard = document.createElement('div')
+    moreCard.className = 'reply-card more-replies-stub'
+
+    moreCard.innerHTML = `
+      <div class="reply-card-text">...and ${count} more</div>
+    `
+
+    // Create tree line
+    const treeLine = document.createElement('div')
+    treeLine.className = 'tree-line'
+
+    // Create card with line
+    const cardWithLine = document.createElement('div')
+    cardWithLine.className = 'card-with-line'
+    cardWithLine.appendChild(treeLine)
+    cardWithLine.appendChild(moreCard)
+
+    return cardWithLine
+  }
+
   private createReplyCard(
     reply: Post,
     isSelected: boolean,
@@ -246,6 +332,9 @@ export class ThreadNavigator {
       <div class="reply-card-text">${truncatedText}</div>
     `
 
+    // Add full text as title for hover tooltip
+    replyCard.title = reply.record.text
+
     // Add click handler
     replyCard.addEventListener('click', onClick || (() => this.callbacks.onPostSelect(reply)))
 
@@ -260,19 +349,6 @@ export class ThreadNavigator {
     cardWithLine.appendChild(replyCard)
 
     return cardWithLine
-  }
-
-  private updateEditorContext(post: Post): void {
-    const editorTitle = document.getElementById('editor-title')
-    const replyingToDiv = document.getElementById('replying-to')
-    const replyingToText = document.getElementById('replying-to-text')
-
-    if (editorTitle) editorTitle.textContent = 'Create Reply'
-    if (replyingToDiv) replyingToDiv.style.display = 'block'
-    if (replyingToText) {
-      replyingToText.textContent = post.record.text.substring(0, 100) +
-        (post.record.text.length > 100 ? '...' : '')
-    }
   }
 
   clear(): void {

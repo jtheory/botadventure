@@ -45,6 +45,7 @@ class BotAdventureApp {
     this.sceneEditor = new SceneEditor({
       onPost: (text, imageText, choices) => this.postToBluesky(text, imageText, choices),
       onSceneDataChange: (data) => this.storage.saveSceneData(data),
+      onCancelReply: () => this.cancelReply(),
     }, BLUESKY_CHAR_LIMIT)
 
     // Initialize UI and restore session
@@ -109,7 +110,10 @@ class BotAdventureApp {
           <div id="load-thread-section" class="load-thread-section">
             <div class="form-group">
               <label for="thread-url">Load Thread (paste URL and press Enter)</label>
-              <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/... (press Enter to load)" />
+              <div style="display: flex; gap: 10px;">
+                <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/... (press Enter to load)" style="flex: 1;" />
+                <button id="clear-thread" class="secondary-button" style="display: none;">Clear Thread</button>
+              </div>
               <small style="opacity: 0.7">Load a new thread anytime - replaces current thread</small>
             </div>
             <div id="load-status"></div>
@@ -122,10 +126,6 @@ class BotAdventureApp {
           <div id="editor-section" class="split-layout">
             <div class="editor-panel">
               <h2 id="editor-title">Create Scene</h2>
-              <div id="replying-to" style="display: none; margin-bottom: 15px; padding: 10px; background: #f0f0f0; border-radius: 5px;">
-                <strong>Replying to:</strong>
-                <div id="replying-to-text" style="margin-top: 5px;"></div>
-              </div>
 
               <div class="form-group">
                 <label for="post-text">Post Text (optional, ${BLUESKY_CHAR_LIMIT} chars)</label>
@@ -196,6 +196,12 @@ class BotAdventureApp {
           this.loadExistingThread(url)
         }
       }
+    })
+
+    // Clear thread button
+    const clearThreadBtn = document.getElementById('clear-thread') as HTMLButtonElement
+    clearThreadBtn?.addEventListener('click', () => {
+      this.clearThread()
     })
 
     // Initialize scene editor
@@ -400,11 +406,48 @@ class BotAdventureApp {
       // Clear the URL input after successful load
       urlInput.value = ''
 
+      // Show the clear thread button
+      const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
+      if (clearBtn) clearBtn.style.display = 'block'
+
       this.showStatus(statusDiv, 'Thread loaded successfully!', 'success')
     } catch (error) {
       console.error('Failed to load thread:', error)
       this.showStatus(statusDiv, 'Failed to load thread', 'error')
     }
+  }
+
+  private clearThread(): void {
+    // Clear thread state
+    this.rootPost = null
+    this.threadPath = []
+    this.editingReplyTo = null
+
+    // Clear UI
+    this.threadNavigator.clear()
+    this.sceneEditor.clearReplyContext()
+
+    // Clear saved state
+    this.storage.clearThreadState()
+
+    // Hide clear button
+    const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
+    if (clearBtn) clearBtn.style.display = 'none'
+
+    // Clear status
+    const statusDiv = document.getElementById('load-status')!
+    this.showStatus(statusDiv, 'Thread cleared - ready to create top-level post', 'success')
+  }
+
+  private cancelReply(): void {
+    // Clear reply state but keep the thread
+    this.editingReplyTo = null
+
+    // Re-render the thread view without the reply context
+    this.renderThread()
+
+    // Save the updated state
+    this.saveThreadState()
   }
 
   private async postToBluesky(postText: string, imageText: string, choices: string): Promise<void> {
@@ -430,8 +473,6 @@ class BotAdventureApp {
 
     try {
       let postResponse
-      const authState = this.auth.getAuthState()
-      const handle = authState?.handle || 'user'
 
       if (imageText.trim()) {
         // Generate and post with image
@@ -487,22 +528,9 @@ class BotAdventureApp {
         })
       }
 
-      // Create post object from response
-      const newPost = this.bluesky.createPostFromResponse(
-        postResponse,
-        postText.trim() || imageText.trim(),
-        { did: this.auth.getAgent().session?.did, handle },
-        this.editingReplyTo ? {
-          root: {
-            uri: this.rootPost ? this.rootPost.uri : this.editingReplyTo.uri,
-            cid: this.rootPost ? this.rootPost.cid : this.editingReplyTo.cid,
-          },
-          parent: {
-            uri: this.editingReplyTo.uri,
-            cid: this.editingReplyTo.cid,
-          },
-        } : undefined
-      )
+      // Fetch the actual post from Bluesky to get the complete data including embed
+      const threadResponse = await this.bluesky.getPostThread(postResponse.uri, 1)
+      const newPost = threadResponse.data.thread.post as Post
 
       if (this.editingReplyTo) {
         // This was a reply - add it to the current node's replies
@@ -514,6 +542,9 @@ class BotAdventureApp {
 
         // Clear reply mode
         this.sceneEditor.clearReplyContext()
+
+        // Select the new post to make it the current post
+        this.selectPost(newPost)
 
         // Render and show success
         this.renderThread()
@@ -606,6 +637,10 @@ class BotAdventureApp {
       if (this.editingReplyTo) {
         this.sceneEditor.setReplyContext(this.editingReplyTo)
       }
+
+      // Show the clear thread button since we have a loaded thread
+      const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
+      if (clearBtn) clearBtn.style.display = 'block'
 
       this.renderThread()
     }

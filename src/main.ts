@@ -6,6 +6,7 @@ import { BlueskyService } from './services/bluesky'
 import { ImageGeneratorService } from './services/imageGenerator'
 import { ThreadNavigator } from './components/ThreadNavigator'
 import { SceneEditor } from './components/SceneEditor'
+import { ThemeService } from './services/theme'
 
 // Character limits
 const BLUESKY_CHAR_LIMIT = 300
@@ -27,6 +28,9 @@ class BotAdventureApp {
   private rootPost: Post | null = null
 
   constructor() {
+    // Initialize theme service first to apply theme early
+    new ThemeService() // Creates theme toggle button
+
     // Initialize services
     this.storage = new StorageService()
     this.auth = new AuthService(this.storage, (authenticated, handle) => {

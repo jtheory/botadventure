@@ -80,15 +80,11 @@ export class SceneEditor {
       })
     }
 
-    // Cancel reply button
-    const cancelReplyBtn = document.getElementById('cancel-reply')
-    if (cancelReplyBtn) {
-      cancelReplyBtn.addEventListener('click', () => {
-        this.clearReplyContext()
-        // Notify the main app to clear reply state
-        if (this.callbacks.onCancelReply) {
-          this.callbacks.onCancelReply()
-        }
+    // Clear editor button
+    const clearEditorBtn = document.getElementById('clear-editor')
+    if (clearEditorBtn) {
+      clearEditorBtn.addEventListener('click', () => {
+        this.clearForm()
       })
     }
 
@@ -121,18 +117,12 @@ export class SceneEditor {
 
   setReplyContext(_post: Post): void {
     const editorTitle = document.getElementById('editor-title')
-    const cancelReplyBtn = document.getElementById('cancel-reply')
-
     if (editorTitle) editorTitle.textContent = 'Create Reply'
-    if (cancelReplyBtn) cancelReplyBtn.style.display = 'inline-block'
   }
 
   clearReplyContext(): void {
     const editorTitle = document.getElementById('editor-title')
-    const cancelReplyBtn = document.getElementById('cancel-reply')
-
     if (editorTitle) editorTitle.textContent = 'Create Scene'
-    if (cancelReplyBtn) cancelReplyBtn.style.display = 'none'
   }
 
   clearForm(): void {

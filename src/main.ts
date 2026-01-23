@@ -113,12 +113,14 @@ class BotAdventureApp {
           <!-- Load existing thread section -->
           <div id="load-thread-section" class="load-thread-section">
             <div class="form-group">
-              <label for="thread-url">Load Thread (paste URL and press Enter)</label>
-              <div style="display: flex; gap: 10px;">
-                <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/... (press Enter to load)" style="flex: 1;" />
-                <button id="clear-thread" class="secondary-button" style="display: none;">Clear Thread</button>
+              <label for="thread-url">Thread URL</label>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/..." style="flex: 1;" />
+                <button id="load-thread-button" class="secondary-button">Load</button>
+                <button id="reload-thread" class="secondary-button" style="display: none;">Reload</button>
+                <button id="clear-thread" class="secondary-button" style="display: none;">Clear</button>
               </div>
-              <small style="opacity: 0.7">Load a new thread anytime - replaces current thread</small>
+              <small style="opacity: 0.7">Enter a Bluesky thread URL to load and continue authoring</small>
             </div>
             <div id="load-status"></div>
           </div>
@@ -164,7 +166,7 @@ class BotAdventureApp {
 
               <div class="button-group">
                 <button id="post-button" class="primary-button">Post to Bluesky</button>
-                <button id="cancel-reply" style="display: none; margin-left: 10px;">Cancel Reply</button>
+                <button id="clear-editor" class="secondary-button" style="margin-left: 10px;">Clear</button>
               </div>
 
               <div id="post-status"></div>
@@ -213,6 +215,30 @@ class BotAdventureApp {
         if (url) {
           this.loadExistingThread(url)
         }
+      }
+    })
+
+    // Load thread button
+    const loadThreadBtn = document.getElementById('load-thread-button') as HTMLButtonElement
+    loadThreadBtn?.addEventListener('click', () => {
+      const url = threadUrlInput?.value.trim()
+      if (url) {
+        this.loadExistingThread(url)
+      }
+    })
+
+    // Reload thread button
+    const reloadThreadBtn = document.getElementById('reload-thread') as HTMLButtonElement
+    reloadThreadBtn?.addEventListener('click', () => {
+      if (this.rootPost) {
+        const postUri = this.rootPost.uri
+        // Convert URI to URL for reloading
+        const parts = postUri.split('/')
+        const postId = parts[parts.length - 1]
+        // Get handle from root post
+        const handle = this.rootPost.author.handle
+        const url = `https://bsky.app/profile/${handle}/post/${postId}`
+        this.loadExistingThread(url, true) // true = reload mode
       }
     })
 
@@ -381,11 +407,13 @@ class BotAdventureApp {
     }
   }
 
-  private async loadExistingThread(url: string): Promise<void> {
+  private async loadExistingThread(url: string, isReload: boolean = false): Promise<void> {
     const statusDiv = document.getElementById('load-status')!
     const urlInput = document.getElementById('thread-url') as HTMLInputElement
+    const reloadBtn = document.getElementById('reload-thread') as HTMLButtonElement
+    const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
 
-    this.showStatus(statusDiv, 'Loading thread...', 'info')
+    this.showStatus(statusDiv, isReload ? 'Reloading thread...' : 'Loading thread...', 'info')
 
     try {
       const atUri = await this.bluesky.resolveUrlToUri(url)
@@ -424,11 +452,11 @@ class BotAdventureApp {
       // Clear the URL input after successful load
       urlInput.value = ''
 
-      // Show the clear thread button
-      const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
-      if (clearBtn) clearBtn.style.display = 'block'
+      // Show the reload and clear buttons
+      if (reloadBtn) reloadBtn.style.display = 'inline-block'
+      if (clearBtn) clearBtn.style.display = 'inline-block'
 
-      this.showStatus(statusDiv, 'Thread loaded successfully!', 'success')
+      this.showStatus(statusDiv, isReload ? 'Thread reloaded!' : 'Thread loaded successfully!', 'success')
     } catch (error) {
       console.error('Failed to load thread:', error)
       this.showStatus(statusDiv, 'Failed to load thread', 'error')
@@ -448,9 +476,11 @@ class BotAdventureApp {
     // Clear saved state
     this.storage.clearThreadState()
 
-    // Hide clear button
+    // Hide clear and reload buttons
     const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
+    const reloadBtn = document.getElementById('reload-thread') as HTMLButtonElement
     if (clearBtn) clearBtn.style.display = 'none'
+    if (reloadBtn) reloadBtn.style.display = 'none'
 
     // Clear status
     const statusDiv = document.getElementById('load-status')!

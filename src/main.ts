@@ -47,7 +47,7 @@ class BotAdventureApp {
     })
 
     this.sceneEditor = new SceneEditor({
-      onPost: (text, imageText, choices) => this.postToBluesky(text, imageText, choices),
+      onPost: (text, imageText, choices, backgroundImage) => this.postToBluesky(text, imageText, choices, backgroundImage),
       onSceneDataChange: (data) => this.storage.saveSceneData(data),
       onCancelReply: () => this.cancelReply(),
     }, BLUESKY_CHAR_LIMIT)
@@ -140,6 +140,20 @@ class BotAdventureApp {
               <div class="form-group">
                 <label for="image-text">Image Text (optional, creates an image if filled)</label>
                 <textarea id="image-text" placeholder="Text that will be rendered as an image..." rows="5"></textarea>
+              </div>
+
+              <div class="form-group">
+                <label for="background-image">Background Image (optional)</label>
+                <input type="file" id="background-image-input" accept="image/jpeg,image/jpg,image/png,image/webp" style="display: none;">
+                <div id="background-image-controls" style="display: flex; gap: 10px; align-items: center;">
+                  <button type="button" id="background-image-button" class="secondary-button" style="flex: 0 0 auto;">Choose Image</button>
+                  <span id="background-image-name" style="flex: 1; opacity: 0.7; font-size: 0.9rem;">No image selected</span>
+                  <button type="button" id="remove-background-button" class="secondary-button" style="display: none; flex: 0 0 auto;">Remove</button>
+                </div>
+                <div id="background-image-preview" style="margin-top: 10px; display: none;">
+                  <img id="background-image-thumbnail" style="max-width: 200px; max-height: 150px; border-radius: 4px; border: 1px solid var(--color-border);">
+                </div>
+                <small style="opacity: 0.7">JPG, PNG, or WebP. Max recommended size: 1MB</small>
               </div>
 
               <div class="form-group">
@@ -454,7 +468,7 @@ class BotAdventureApp {
     this.saveThreadState()
   }
 
-  private async postToBluesky(postText: string, imageText: string, choices: string): Promise<void> {
+  private async postToBluesky(postText: string, imageText: string, choices: string, backgroundImage?: string): Promise<void> {
     if (!this.auth.isUserAuthenticated()) {
       alert('Please connect to Bluesky first')
       return
@@ -481,7 +495,7 @@ class BotAdventureApp {
       if (imageText.trim()) {
         // Generate and post with image
         this.showStatus(statusDiv, 'Generating image...', 'info')
-        const imageResult = await this.imageGenerator.generateSceneImage(imageText, choicesList)
+        const imageResult = await this.imageGenerator.generateSceneImage(imageText, choicesList, backgroundImage)
 
         this.showStatus(statusDiv, 'Uploading image...', 'info')
         const imageBlob = await this.bluesky.uploadImage(imageResult.blob)

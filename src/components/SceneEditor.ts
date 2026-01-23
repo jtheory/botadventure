@@ -2,7 +2,7 @@ import { ImageGeneratorService } from '../services/imageGenerator'
 import { Post, SceneData } from '../types'
 
 export interface SceneEditorCallbacks {
-  onPost: (text: string, imageText: string, choices: string) => void
+  onPost: (text: string, imageText: string, choices: string, backgroundImage?: string) => void
   onSceneDataChange: (data: SceneData) => void
   onCancelReply?: () => void
 }
@@ -11,6 +11,8 @@ export class SceneEditor {
   private imageGenerator: ImageGeneratorService
   private lastImageText = ''
   private lastChoicesText = ''
+  private lastBackgroundImage = ''
+  private lastRenderedBackground = '' // Track what was actually rendered in preview
   private previewRefreshTimer: NodeJS.Timeout | null = null
   private isGeneratingPreview = false
 
@@ -74,7 +76,7 @@ export class SceneEditor {
     if (postButton) {
       postButton.addEventListener('click', () => {
         const data = this.getSceneData()
-        this.callbacks.onPost(data.postText, data.imageText, data.choices)
+        this.callbacks.onPost(data.postText, data.imageText, data.choices, data.backgroundImage)
       })
     }
 
@@ -87,6 +89,32 @@ export class SceneEditor {
         if (this.callbacks.onCancelReply) {
           this.callbacks.onCancelReply()
         }
+      })
+    }
+
+    // Background image upload
+    const bgImageInput = document.getElementById('background-image-input') as HTMLInputElement
+    const bgImageButton = document.getElementById('background-image-button')
+    const removeBtn = document.getElementById('remove-background-button')
+
+    if (bgImageButton) {
+      bgImageButton.addEventListener('click', () => {
+        bgImageInput?.click()
+      })
+    }
+
+    if (bgImageInput) {
+      bgImageInput.addEventListener('change', (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0]
+        if (file) {
+          this.handleBackgroundImageUpload(file)
+        }
+      })
+    }
+
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        this.removeBackgroundImage()
       })
     }
   }
@@ -116,6 +144,14 @@ export class SceneEditor {
     if (imageText) imageText.value = ''
     if (choices) choices.value = ''
 
+    // Clear background image
+    this.removeBackgroundImage()
+
+    // Reset preview tracking
+    this.lastImageText = ''
+    this.lastChoicesText = ''
+    this.lastRenderedBackground = ''
+
     this.updateCharCounter()
   }
 
@@ -128,6 +164,22 @@ export class SceneEditor {
     if (imageText) imageText.value = data.imageText || ''
     if (choices) choices.value = data.choices || ''
 
+    // Load background image if present
+    if (data.backgroundImage) {
+      this.lastBackgroundImage = data.backgroundImage
+      this.lastRenderedBackground = '' // Force preview to regenerate with loaded background
+
+      const nameSpan = document.getElementById('background-image-name')
+      const preview = document.getElementById('background-image-preview')
+      const thumbnail = document.getElementById('background-image-thumbnail') as HTMLImageElement
+      const removeBtn = document.getElementById('remove-background-button')
+
+      if (nameSpan) nameSpan.textContent = data.backgroundImageName || 'Saved background'
+      if (preview) preview.style.display = 'block'
+      if (thumbnail) thumbnail.src = data.backgroundImage
+      if (removeBtn) removeBtn.style.display = 'inline-block'
+    }
+
     this.updateCharCounter()
   }
 
@@ -135,11 +187,14 @@ export class SceneEditor {
     const postText = document.getElementById('post-text') as HTMLTextAreaElement
     const imageText = document.getElementById('image-text') as HTMLTextAreaElement
     const choices = document.getElementById('choices') as HTMLTextAreaElement
+    const nameSpan = document.getElementById('background-image-name')
 
     return {
       postText: postText?.value || '',
       imageText: imageText?.value || '',
       choices: choices?.value || '',
+      backgroundImage: this.lastBackgroundImage || undefined,
+      backgroundImageName: nameSpan?.textContent !== 'No image selected' ? nameSpan?.textContent || undefined : undefined,
     }
   }
 
@@ -248,12 +303,21 @@ export class SceneEditor {
       .map(c => c.trim())
       .filter(c => c.length > 0)
 
-    if (imageValue &&
-        (imageValue !== this.lastImageText || choicesValue !== this.lastChoicesText)) {
+    const backgroundImage = this.lastBackgroundImage
+
+    // Check if any image-related content has changed
+    const needsImageRegeneration = imageValue && (
+      imageValue !== this.lastImageText ||
+      choicesValue !== this.lastChoicesText ||
+      backgroundImage !== this.lastRenderedBackground
+    )
+
+    if (needsImageRegeneration) {
       // Generate new image preview
       await this.regenerateImagePreview(imageValue, choicesList)
       this.lastImageText = imageValue
       this.lastChoicesText = choicesValue
+      this.lastRenderedBackground = backgroundImage
     } else if (!imageValue && previewHtml) {
       // Text-only preview
       previewContent.innerHTML = previewHtml
@@ -290,7 +354,8 @@ export class SceneEditor {
       // Use the same image generation as posting to ensure consistency
       const imageResult = await this.imageGenerator.generateSceneImage(
         imageText,
-        choices
+        choices,
+        this.lastBackgroundImage || undefined
       )
 
       // Convert blob to data URL for preview
@@ -337,6 +402,61 @@ export class SceneEditor {
     const div = document.createElement('div')
     div.textContent = text
     return div.innerHTML
+  }
+
+  private async handleBackgroundImageUpload(file: File): Promise<void> {
+    // Check file size (recommend max 1MB)
+    const maxSize = 1024 * 1024 // 1MB
+    if (file.size > maxSize) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(1)
+      if (!confirm(`This image is ${sizeMB}MB. Large images may slow down the app. Continue?`)) {
+        return
+      }
+    }
+
+    // Read file as data URL
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string
+
+      // Update UI
+      const nameSpan = document.getElementById('background-image-name')
+      const preview = document.getElementById('background-image-preview')
+      const thumbnail = document.getElementById('background-image-thumbnail') as HTMLImageElement
+      const removeBtn = document.getElementById('remove-background-button')
+
+      if (nameSpan) nameSpan.textContent = file.name
+      if (preview) preview.style.display = 'block'
+      if (thumbnail) thumbnail.src = dataUrl
+      if (removeBtn) removeBtn.style.display = 'inline-block'
+
+      // Store and trigger updates
+      this.lastBackgroundImage = dataUrl
+      this.lastRenderedBackground = '' // Force preview to regenerate
+      this.callbacks.onSceneDataChange(this.getSceneData())
+      this.schedulePreviewRefresh()
+    }
+
+    reader.readAsDataURL(file)
+  }
+
+  private removeBackgroundImage(): void {
+    // Clear UI
+    const nameSpan = document.getElementById('background-image-name')
+    const preview = document.getElementById('background-image-preview')
+    const removeBtn = document.getElementById('remove-background-button')
+    const input = document.getElementById('background-image-input') as HTMLInputElement
+
+    if (nameSpan) nameSpan.textContent = 'No image selected'
+    if (preview) preview.style.display = 'none'
+    if (removeBtn) removeBtn.style.display = 'none'
+    if (input) input.value = ''
+
+    // Clear stored image and force preview update
+    this.lastBackgroundImage = ''
+    this.lastRenderedBackground = 'force-refresh' // Force different value to trigger update
+    this.callbacks.onSceneDataChange(this.getSceneData())
+    this.schedulePreviewRefresh()
   }
 
   setPostButtonState(disabled: boolean): void {

@@ -37,6 +37,8 @@ export interface SceneData {
   postText: string
   imageText: string
   choices: string
+  backgroundImage?: string // Base64 data URL of the background image
+  backgroundImageName?: string // Original filename for reference
 }
 
 export interface ThreadState {

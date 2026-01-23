@@ -4,7 +4,8 @@ import { ImageGenerationResult } from '../types'
 export class ImageGeneratorService {
   async generateSceneImage(
     sceneText: string,
-    choices: string[]
+    choices: string[],
+    backgroundImage?: string
   ): Promise<ImageGenerationResult> {
     // Create a temporary container for rendering
     const container = document.createElement('div')
@@ -14,10 +15,35 @@ export class ImageGeneratorService {
       left: -9999px;
       width: 800px;
       padding: 60px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      ${backgroundImage
+        ? `background-image: url(${backgroundImage}); background-size: cover; background-position: center;`
+        : 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);'}
       font-family: system-ui, -apple-system, sans-serif;
       color: white;
     `
+
+    // Add overlay for better text readability if background image is used
+    if (backgroundImage) {
+      const overlay = document.createElement('div')
+      overlay.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(2px);
+      `
+      container.appendChild(overlay)
+    }
+
+    // Create content wrapper for proper layering
+    const contentWrapper = document.createElement('div')
+    contentWrapper.style.cssText = `
+      position: relative;
+      z-index: 1;
+    `
+    container.appendChild(contentWrapper)
 
     // Add scene text
     const sceneDiv = document.createElement('div')
@@ -25,10 +51,10 @@ export class ImageGeneratorService {
       font-size: 24px;
       line-height: 1.6;
       margin-bottom: ${choices.length > 0 ? '40px' : '0'};
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
     `
     sceneDiv.textContent = sceneText
-    container.appendChild(sceneDiv)
+    contentWrapper.appendChild(sceneDiv)
 
     // Add choices if any
     if (choices.length > 0) {
@@ -62,7 +88,7 @@ export class ImageGeneratorService {
         choicesDiv.appendChild(choiceItem)
       })
 
-      container.appendChild(choicesDiv)
+      contentWrapper.appendChild(choicesDiv)
     }
 
     // Add to document temporarily
@@ -185,22 +211,48 @@ export class ImageGeneratorService {
     }
   }
 
-  async generatePreviewElement(sceneText: string, choices: string[]): Promise<HTMLElement> {
+  async generatePreviewElement(sceneText: string, choices: string[], backgroundImage?: string): Promise<HTMLElement> {
     const previewDiv = document.createElement('div')
     previewDiv.className = 'scene-canvas'
     previewDiv.style.cssText = `
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      ${backgroundImage
+        ? `background-image: url(${backgroundImage}); background-size: cover; background-position: center;`
+        : 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);'}
       color: white;
       padding: 2rem;
       border-radius: 4px;
       font-size: 1.1rem;
       line-height: 1.6;
+      position: relative;
     `
+
+    // Add overlay if background image is used
+    if (backgroundImage) {
+      const overlay = document.createElement('div')
+      overlay.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 4px;
+      `
+      previewDiv.appendChild(overlay)
+    }
+
+    // Create content wrapper
+    const contentWrapper = document.createElement('div')
+    contentWrapper.style.cssText = `
+      position: relative;
+      z-index: 1;
+    `
+    previewDiv.appendChild(contentWrapper)
 
     // Add scene text
     const sceneElement = document.createElement('div')
     sceneElement.textContent = sceneText
-    previewDiv.appendChild(sceneElement)
+    contentWrapper.appendChild(sceneElement)
 
     // Add choices if any
     if (choices.length > 0) {
@@ -215,7 +267,7 @@ export class ImageGeneratorService {
         choicesContainer.appendChild(choiceElement)
       })
 
-      previewDiv.appendChild(choicesContainer)
+      contentWrapper.appendChild(choicesContainer)
     }
 
     return previewDiv

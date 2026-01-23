@@ -285,6 +285,23 @@ export class SceneEditor {
           ${this.escapeHtml(combinedText)}
         </div>
       `
+
+      // Add stats for text-only posts
+      if (!imageValue) {
+        const charWarn = combinedText.length > 300 ? ' ⚠️ Over limit!' :
+                        combinedText.length > 270 ? ' ⚠️' : ''
+        previewHtml += `
+          <div style="
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--color-border);
+            font-size: 0.85rem;
+            color: var(--color-text-secondary);
+          ">
+            <div>📝 Text post: <strong>${combinedText.length} chars${charWarn}</strong></div>
+          </div>
+        `
+      }
     }
 
     // Check if we need to regenerate the image preview
@@ -357,7 +374,7 @@ export class SceneEditor {
 
       const previewElement = document.createElement('img')
       previewElement.src = dataUrl
-      previewElement.style.cssText = 'max-width: 100%; border-radius: 8px;'
+      previewElement.style.cssText = 'max-width: 100%; border-radius: 8px; display: block;'
 
       // Clear and rebuild preview with both text and image
       previewContent.innerHTML = ''
@@ -372,6 +389,42 @@ export class SceneEditor {
 
       // Then add the image
       previewContent.appendChild(previewElement)
+
+      // Add stats below the preview
+      const statsDiv = document.createElement('div')
+      statsDiv.style.cssText = `
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--color-border);
+        font-size: 0.85rem;
+        color: var(--color-text-secondary);
+      `
+
+      // Calculate stats
+      const imageSizeMB = (imageResult.blob.size / (1024 * 1024)).toFixed(2)
+      const imageSizeKB = (imageResult.blob.size / 1024).toFixed(0)
+      const sizeDisplay = imageResult.blob.size > 1024 * 1024
+        ? `${imageSizeMB} MB`
+        : `${imageSizeKB} KB`
+
+      const altText = this.combineSceneAndChoices(imageText, choices.join('\n'))
+      const plainTextChars = postText?.value.length || 0
+      const altTextChars = altText.length
+
+      // Check if sizes are concerning
+      const sizeWarning = imageResult.blob.size > 900 * 1024 ? ' ⚠️' : ''
+      const textWarning = plainTextChars > 300 ? ' ⚠️ Over limit!' :
+                         plainTextChars > 270 ? ' ⚠️' : ''
+
+      statsDiv.innerHTML = `
+        <div style="display: flex; gap: 1.5rem; flex-wrap: wrap;">
+          <div>📸 Image: <strong>JPEG, ${sizeDisplay}${sizeWarning}</strong></div>
+          <div>📝 Post text: <strong>${plainTextChars} chars${textWarning}</strong></div>
+          <div>🔤 Alt text: <strong>${altTextChars} chars</strong></div>
+        </div>
+      `
+
+      previewContent.appendChild(statsDiv)
 
       if (statusDiv) {
         statusDiv.textContent = '✓ Preview ready'

@@ -13,8 +13,8 @@ export class ImageGeneratorService {
       position: fixed;
       top: -9999px;
       left: -9999px;
-      width: 800px;
-      padding: 60px;
+      width: 600px;
+      padding: 40px;
       ${backgroundImage
         ? `background-image: url(${backgroundImage}); background-size: cover; background-position: center;`
         : 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);'}
@@ -48,9 +48,9 @@ export class ImageGeneratorService {
     // Add scene text
     const sceneDiv = document.createElement('div')
     sceneDiv.style.cssText = `
-      font-size: 24px;
+      font-size: 20px;
       line-height: 1.6;
-      margin-bottom: ${choices.length > 0 ? '40px' : '0'};
+      margin-bottom: ${choices.length > 0 ? '30px' : '0'};
       text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
     `
     sceneDiv.textContent = sceneText
@@ -66,8 +66,8 @@ export class ImageGeneratorService {
 
       const choicesTitle = document.createElement('div')
       choicesTitle.style.cssText = `
-        font-size: 18px;
-        margin-bottom: 20px;
+        font-size: 16px;
+        margin-bottom: 15px;
         opacity: 0.9;
         font-weight: 600;
       `
@@ -77,9 +77,9 @@ export class ImageGeneratorService {
       choices.forEach(choice => {
         const choiceItem = document.createElement('div')
         choiceItem.style.cssText = `
-          font-size: 20px;
-          margin: 12px 0;
-          padding: 12px 20px;
+          font-size: 18px;
+          margin: 10px 0;
+          padding: 10px 15px;
           background: rgba(255,255,255,0.1);
           border-radius: 8px;
           backdrop-filter: blur(10px);
@@ -95,10 +95,10 @@ export class ImageGeneratorService {
     document.body.appendChild(container)
 
     try {
-      // Generate the image
+      // Generate the image with optimized scale for file size
       const canvas = await html2canvas(container, {
-        backgroundColor: null,
-        scale: 2,
+        backgroundColor: null, // Use the container's actual background
+        scale: 1.5, // Reduced from 2 to decrease file size while maintaining quality
         logging: false,
       })
 
@@ -106,7 +106,27 @@ export class ImageGeneratorService {
       const width = canvas.width
       const height = canvas.height
 
-      // Find the actual content bounds to minimize blank space
+      // Skip cropping if we have a background image - preserve the full background
+      if (backgroundImage) {
+        return new Promise((resolve, reject) => {
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve({
+                  blob,
+                  dimensions: { width, height },
+                })
+              } else {
+                reject(new Error('Failed to create image blob'))
+              }
+            },
+            'image/jpeg',
+            0.85
+          )
+        })
+      }
+
+      // Find the actual content bounds to minimize blank space (only for gradient backgrounds)
       const ctx = canvas.getContext('2d')
       if (ctx) {
         const imageData = ctx.getImageData(0, 0, width, height)
@@ -114,13 +134,13 @@ export class ImageGeneratorService {
 
         // Create a new canvas with cropped dimensions
         const croppedCanvas = document.createElement('canvas')
-        const padding = 40 // Keep some padding
+        const padding = 20
         croppedCanvas.width = bounds.width + (padding * 2)
         croppedCanvas.height = bounds.height + (padding * 2)
 
         const croppedCtx = croppedCanvas.getContext('2d')
         if (croppedCtx) {
-          // Fill background
+          // Fill background with purple gradient color
           croppedCtx.fillStyle = '#667eea'
           croppedCtx.fillRect(0, 0, croppedCanvas.width, croppedCanvas.height)
 
@@ -137,7 +157,7 @@ export class ImageGeneratorService {
             croppedCanvas.height
           )
 
-          // Convert to blob
+          // Convert to blob with JPEG compression for smaller file size
           return new Promise((resolve, reject) => {
             croppedCanvas.toBlob(
               (blob) => {
@@ -153,8 +173,8 @@ export class ImageGeneratorService {
                   reject(new Error('Failed to create image blob'))
                 }
               },
-              'image/png',
-              0.95
+              'image/jpeg',
+              0.85 // Good quality/size balance
             )
           })
         }
@@ -173,8 +193,8 @@ export class ImageGeneratorService {
               reject(new Error('Failed to create image blob'))
             }
           },
-          'image/png',
-          0.95
+          'image/jpeg',
+          0.85
         )
       })
     } finally {
@@ -186,19 +206,25 @@ export class ImageGeneratorService {
   private findContentBounds(imageData: ImageData): { x: number; y: number; width: number; height: number } {
     const { width, height, data } = imageData
     let minX = width, minY = height, maxX = 0, maxY = 0
+    let foundContent = false
 
-    // Scan for non-transparent pixels
+    // Scan for non-transparent and non-white pixels
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const idx = (y * width + x) * 4
+        const r = data[idx]
+        const g = data[idx + 1]
+        const b = data[idx + 2]
         const alpha = data[idx + 3]
 
-        // Check if pixel is not fully transparent
-        if (alpha > 10) {
+        // Check if pixel is not fully transparent and not pure white
+        const isNotWhite = !(r > 250 && g > 250 && b > 250)
+        if (alpha > 10 && (isNotWhite || foundContent)) {
           minX = Math.min(minX, x)
           minY = Math.min(minY, y)
           maxX = Math.max(maxX, x)
           maxY = Math.max(maxY, y)
+          foundContent = true
         }
       }
     }

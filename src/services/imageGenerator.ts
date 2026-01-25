@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas'
 import { ImageGenerationResult } from '../types'
+import { parseMarkdownToHTML, parseChoicesMarkdown } from '../utils/markdown'
 
 export class ImageGeneratorService {
   async generateSceneImage(
@@ -45,15 +46,16 @@ export class ImageGeneratorService {
     `
     container.appendChild(contentWrapper)
 
-    // Add scene text
+    // Add scene text with markdown parsing
     const sceneDiv = document.createElement('div')
     sceneDiv.style.cssText = `
       font-size: 20px;
       line-height: 1.6;
       margin-bottom: ${choices.length > 0 ? '30px' : '0'};
       text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+      white-space: pre-wrap;
     `
-    sceneDiv.textContent = sceneText
+    sceneDiv.innerHTML = parseMarkdownToHTML(sceneText)
     contentWrapper.appendChild(sceneDiv)
 
     // Add choices if any
@@ -74,7 +76,8 @@ export class ImageGeneratorService {
       choicesTitle.textContent = 'What do you do?'
       choicesDiv.appendChild(choicesTitle)
 
-      choices.forEach(choice => {
+      const parsedChoices = parseChoicesMarkdown(choices)
+      parsedChoices.forEach(choice => {
         const choiceItem = document.createElement('div')
         choiceItem.style.cssText = `
           font-size: 18px;
@@ -84,7 +87,7 @@ export class ImageGeneratorService {
           border-radius: 8px;
           backdrop-filter: blur(10px);
         `
-        choiceItem.textContent = choice
+        choiceItem.innerHTML = choice.html
         choicesDiv.appendChild(choiceItem)
       })
 
@@ -275,9 +278,10 @@ export class ImageGeneratorService {
     `
     previewDiv.appendChild(contentWrapper)
 
-    // Add scene text
+    // Add scene text with markdown parsing
     const sceneElement = document.createElement('div')
-    sceneElement.textContent = sceneText
+    sceneElement.style.cssText = `white-space: pre-wrap;`
+    sceneElement.innerHTML = parseMarkdownToHTML(sceneText)
     contentWrapper.appendChild(sceneElement)
 
     // Add choices if any
@@ -286,10 +290,11 @@ export class ImageGeneratorService {
       choicesContainer.className = 'scene-choices'
       choicesContainer.innerHTML = '<h3>What do you do?</h3>'
 
-      choices.forEach(choice => {
+      const parsedChoices = parseChoicesMarkdown(choices)
+      parsedChoices.forEach(choice => {
         const choiceElement = document.createElement('div')
         choiceElement.className = 'choice-item'
-        choiceElement.textContent = choice
+        choiceElement.innerHTML = choice.html
         choicesContainer.appendChild(choiceElement)
       })
 

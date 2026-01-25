@@ -113,11 +113,7 @@ export class ThreadNavigator {
 
     const actionsDiv = document.createElement('div')
     actionsDiv.className = 'post-actions'
-    actionsDiv.innerHTML = `
-      💬 ${post.replyCount || 0} replies •
-      ❤️ ${post.likeCount || 0} likes •
-      🔄 ${post.repostCount || 0} reposts
-    `
+    actionsDiv.innerHTML = `💬 ${post.replyCount || 0} replies • ❤️ ${post.likeCount || 0} likes • 🔄 ${post.repostCount || 0} reposts`
 
     // Build post structure
     postDiv.appendChild(headerDiv)

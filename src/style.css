@@ -454,6 +454,8 @@ button:disabled {
 .post-text {
   margin: 10px 0;
   line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
 }
 
 .post-actions {

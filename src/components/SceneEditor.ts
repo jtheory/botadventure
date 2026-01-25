@@ -1,5 +1,6 @@
 import { ImageGeneratorService } from '../services/imageGenerator'
 import { Post, SceneData } from '../types'
+import { stripMarkdown } from '../utils/markdown'
 
 export interface SceneEditorCallbacks {
   onPost: (text: string, imageText: string, choices: string, backgroundImage?: string) => void
@@ -219,8 +220,9 @@ export class SceneEditor {
   }
 
   private combineSceneAndChoices(sceneText: string, choicesText: string): string {
-    const trimmedScene = sceneText.trim()
-    const trimmedChoices = choicesText.trim()
+    // Strip markdown for plain text (alt text preview)
+    const trimmedScene = stripMarkdown(sceneText.trim())
+    const trimmedChoices = stripMarkdown(choicesText.trim())
 
     if (!trimmedChoices) {
       return trimmedScene
@@ -280,11 +282,7 @@ export class SceneEditor {
     // Add post text if present
     if (postValue) {
       const combinedText = this.combineSceneAndChoices(postValue, choicesValue)
-      previewHtml += `
-        <div style="white-space: pre-wrap; font-family: system-ui; line-height: 1.5; margin-bottom: 1rem;">
-          ${this.escapeHtml(combinedText)}
-        </div>
-      `
+      previewHtml += `<div style="white-space: pre-wrap; font-family: system-ui; line-height: 1.5; margin-bottom: 1rem;">${this.escapeHtml(combinedText)}</div>`
 
       // Add stats for text-only posts
       if (!imageValue) {

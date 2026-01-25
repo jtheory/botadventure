@@ -7,6 +7,7 @@ import { ImageGeneratorService } from './services/imageGenerator'
 import { ThreadNavigator } from './components/ThreadNavigator'
 import { SceneEditor } from './components/SceneEditor'
 import { ThemeService } from './services/theme'
+import { stripMarkdown } from './utils/markdown'
 
 // Character limits
 const BLUESKY_CHAR_LIMIT = 300
@@ -548,9 +549,15 @@ class BotAdventureApp {
         })
       } else {
         // Text-only post
-        const textToPost = choicesList.length > 0
-          ? this.combineSceneAndChoices(postText, choices)
-          : postText
+        let textToPost = postText.trim()
+
+        // If we have choices but no image, append them to the post text
+        if (choicesList.length > 0) {
+          const choicesText = choices.trim()
+          if (choicesText) {
+            textToPost = `${textToPost}\n\nWhat do you do?\n${choicesText}`
+          }
+        }
 
         // Check character limit
         if (textToPost.length > BLUESKY_CHAR_LIMIT) {
@@ -646,8 +653,9 @@ class BotAdventureApp {
   }
 
   private combineSceneAndChoices(sceneText: string, choicesText: string): string {
-    const trimmedScene = sceneText.trim()
-    const trimmedChoices = choicesText.trim()
+    // Strip markdown for plain text (alt text and text posts)
+    const trimmedScene = stripMarkdown(sceneText.trim())
+    const trimmedChoices = stripMarkdown(choicesText.trim())
 
     if (!trimmedChoices) {
       return trimmedScene

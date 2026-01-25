@@ -114,10 +114,12 @@ class BotAdventureApp {
           <div id="load-thread-section" class="load-thread-section">
             <div class="form-group">
               <label for="thread-url">Thread URL</label>
-              <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/..." style="flex: 1;" />
-                <button id="load-thread-button" class="secondary-button">Load</button>
-                <button id="reload-thread" class="secondary-button" style="display: none;">Reload</button>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <div style="flex: 1; position: relative;">
+                  <input type="text" id="thread-url" placeholder="https://bsky.app/profile/user/post/..." style="width: 100%; padding-right: 35px;" />
+                  <span style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); opacity: 0.5; pointer-events: none; font-size: 1.1em;">↩</span>
+                </div>
+                <button id="reload-thread" class="icon-button" style="display: none; padding: 6px 10px; font-size: 1.2em;" title="Reload thread">🔄</button>
                 <button id="clear-thread" class="secondary-button" style="display: none;">Clear</button>
               </div>
               <small style="opacity: 0.7">Enter a Bluesky thread URL to load and continue authoring</small>
@@ -218,14 +220,6 @@ class BotAdventureApp {
       }
     })
 
-    // Load thread button
-    const loadThreadBtn = document.getElementById('load-thread-button') as HTMLButtonElement
-    loadThreadBtn?.addEventListener('click', () => {
-      const url = threadUrlInput?.value.trim()
-      if (url) {
-        this.loadExistingThread(url)
-      }
-    })
 
     // Reload thread button
     const reloadThreadBtn = document.getElementById('reload-thread') as HTMLButtonElement
@@ -445,12 +439,12 @@ class BotAdventureApp {
       this.editingReplyTo = rootPost
       this.sceneEditor.setReplyContext(rootPost)
 
+      // Keep the URL in the input field to show what's loaded
+      urlInput.value = url
+
       // Render the thread
       this.renderThread()
       this.saveThreadState()
-
-      // Clear the URL input after successful load
-      urlInput.value = ''
 
       // Show the reload and clear buttons
       if (reloadBtn) reloadBtn.style.display = 'inline-block'
@@ -472,6 +466,10 @@ class BotAdventureApp {
     // Clear UI
     this.threadNavigator.clear()
     this.sceneEditor.clearReplyContext()
+
+    // Clear the URL input field
+    const urlInput = document.getElementById('thread-url') as HTMLInputElement
+    if (urlInput) urlInput.value = ''
 
     // Clear saved state
     this.storage.clearThreadState()
@@ -667,10 +665,12 @@ class BotAdventureApp {
   }
 
   private saveThreadState(): void {
+    const threadUrl = (document.getElementById('thread-url') as HTMLInputElement)?.value || undefined
     this.storage.saveThreadState({
       rootPost: this.rootPost,
       threadPath: this.threadPath,
       editingReplyTo: this.editingReplyTo,
+      threadUrl: threadUrl,
     })
   }
 
@@ -681,13 +681,23 @@ class BotAdventureApp {
       this.threadPath = state.threadPath
       this.editingReplyTo = state.editingReplyTo
 
+      // Restore the thread URL to the input field
+      if (state.threadUrl) {
+        const urlInput = document.getElementById('thread-url') as HTMLInputElement
+        if (urlInput) {
+          urlInput.value = state.threadUrl
+        }
+      }
+
       // Update UI
       if (this.editingReplyTo) {
         this.sceneEditor.setReplyContext(this.editingReplyTo)
       }
 
-      // Show the clear thread button since we have a loaded thread
+      // Show the reload and clear thread buttons since we have a loaded thread
+      const reloadBtn = document.getElementById('reload-thread') as HTMLButtonElement
       const clearBtn = document.getElementById('clear-thread') as HTMLButtonElement
+      if (reloadBtn) reloadBtn.style.display = 'block'
       if (clearBtn) clearBtn.style.display = 'block'
 
       this.renderThread()

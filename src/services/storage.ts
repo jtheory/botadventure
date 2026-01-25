@@ -60,7 +60,8 @@ export class StorageService {
         return {
           rootPost: data.rootPost || null,
           threadPath: data.threadPath || [],
-          editingReplyTo: data.editingReplyTo || null
+          editingReplyTo: data.editingReplyTo || null,
+          threadUrl: data.threadUrl
         }
       } catch (e) {
         console.error('Failed to load thread state:', e)

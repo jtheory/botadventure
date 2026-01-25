@@ -37,6 +37,11 @@ Building a Bluesky-based CYOA (Choose Your Own Adventure) game interface.
 3. Close issues when completing tasks
 4. Keep git and beads in sync with `bd sync`
 
+## Important Rules
+
+- **NEVER commit changes unless explicitly asked** - Always let the user test first before committing
+- Only create git commits when the user specifically requests it
+
 ## Current Focus
 
 Building the minimal viable author tool for manually posting CYOA scenes to Bluesky.

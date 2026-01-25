@@ -45,6 +45,7 @@ export interface ThreadState {
   rootPost: Post | null
   threadPath: ThreadNode[]
   editingReplyTo: Post | null
+  threadUrl?: string
 }
 
 export interface ImageGenerationResult {

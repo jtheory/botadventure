@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Waveform Visualization Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #00bfff;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .controls {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .control-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .control {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 12px;
+            color: #aaa;
+            text-transform: uppercase;
+        }
+
+        input, select {
+            padding: 8px;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #e0e0e0;
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 40px;
+            cursor: pointer;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        .range-value {
+            text-align: center;
+            color: #00bfff;
+            font-weight: bold;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #00bfff;
+            border: none;
+            border-radius: 4px;
+            color: #000;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background: #0099cc;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .preview-section {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        #previewCanvas {
+            width: 100%;
+            max-width: 960px;
+            height: auto;
+            border: 1px solid #444;
+            border-radius: 4px;
+            display: block;
+            margin: 0 auto;
+        }
+
+        #videoPreview {
+            width: 100%;
+            max-width: 960px;
+            height: auto;
+            border: 1px solid #444;
+            border-radius: 4px;
+            display: none;
+            margin: 20px auto;
+        }
+
+        .status {
+            background: #000;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .status-line {
+            margin-bottom: 4px;
+        }
+
+        .success { color: #00ff00; }
+        .error { color: #ff6666; }
+        .info { color: #00bfff; }
+        .warning { color: #ffff00; }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            background: #1a1a1a;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 20px;
+            font-weight: bold;
+            color: #00bfff;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #00bfff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>🎵 Waveform Visualization Test</h1>
+
+    <div class="controls">
+        <h3>Input</h3>
+        <div class="control-group">
+            <div class="control">
+                <label for="audioFile">Audio File</label>
+                <input type="file" id="audioFile" accept="audio/*">
+            </div>
+            <div class="control">
+                <label for="imageFile">Background Image (Optional)</label>
+                <input type="file" id="imageFile" accept="image/*">
+            </div>
+            <div class="control">
+                <label for="textOverlay">Text Overlay</label>
+                <input type="text" id="textOverlay" placeholder="Enter text to display...">
+            </div>
+        </div>
+
+        <h3>Visualization Settings</h3>
+        <div class="control-group">
+            <div class="control">
+                <label for="vizStyle">Style</label>
+                <select id="vizStyle">
+                    <option value="bars">Bars</option>
+                    <option value="line">Line</option>
+                    <option value="mirror">Mirror</option>
+                </select>
+            </div>
+
+            <div class="control">
+                <label for="bgColor">Background Color</label>
+                <input type="color" id="bgColor" value="#000000">
+            </div>
+
+            <div class="control">
+                <label for="waveColor">Waveform Color</label>
+                <input type="color" id="waveColor" value="#00bfff">
+            </div>
+
+            <div class="control">
+                <label for="playheadColor">Playhead Color</label>
+                <input type="color" id="playheadColor" value="#ffffff">
+            </div>
+
+            <div class="control">
+                <label for="fps">FPS</label>
+                <input type="range" id="fps" min="1" max="30" value="10">
+                <div class="range-value" id="fpsValue">10 fps</div>
+            </div>
+
+            <div class="control">
+                <label for="barWidth">Bar Width</label>
+                <input type="range" id="barWidth" min="2" max="20" value="4">
+                <div class="range-value" id="barWidthValue">4 px</div>
+            </div>
+
+            <div class="control">
+                <label for="barGap">Bar Gap</label>
+                <input type="range" id="barGap" min="0" max="50" value="20">
+                <div class="range-value" id="barGapValue">20%</div>
+            </div>
+
+            <div class="control">
+                <label for="waveformPosition">Waveform Position</label>
+                <select id="waveformPosition">
+                    <option value="full">Full Canvas</option>
+                    <option value="bottom" selected>Bottom</option>
+                </select>
+            </div>
+
+            <div class="control">
+                <label for="waveformHeight">Waveform Height (when bottom)</label>
+                <input type="range" id="waveformHeight" min="5" max="30" value="15">
+                <div class="range-value" id="waveformHeightValue">15%</div>
+            </div>
+        </div>
+
+        <h3>Actions</h3>
+        <div class="buttons">
+            <button id="previewBtn">🖼️ Generate Preview Frame</button>
+            <button id="animateBtn">🎬 Generate Animation Frames</button>
+            <button id="createVideoBtn">📹 Create Video</button>
+        </div>
+    </div>
+
+    <div class="preview-section">
+        <h3>Preview</h3>
+        <canvas id="previewCanvas" width="1280" height="720"></canvas>
+        <video id="videoPreview" controls></video>
+
+        <div class="stats" id="stats" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-label">Duration</div>
+                <div class="stat-value" id="statDuration">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Frames</div>
+                <div class="stat-value" id="statFrames">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">File Size</div>
+                <div class="stat-value" id="statSize">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Generation Time</div>
+                <div class="stat-value" id="statTime">-</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <script type="module">
+        import('/src/utils/audioVisualizer.ts').then(vizModule => {
+            import('/src/utils/ffmpegCore.ts').then(ffmpegModule => {
+
+        const { generateWaveformFrames, generatePreviewFrame } = vizModule;
+        const { createVideoFromFrames } = ffmpegModule;
+
+        let audioFile = null;
+        let imageFile = null;
+        let generatedFrames = null;
+        let videoBlob = null;
+
+        const statusEl = document.getElementById('status');
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+
+        function log(msg, type = 'info') {
+            console.log(msg);
+            const timestamp = new Date().toTimeString().slice(0, 8);
+            statusEl.innerHTML += `<div class="status-line ${type}">${timestamp} ${msg}</div>`;
+            statusEl.scrollTop = statusEl.scrollHeight;
+        }
+
+        // Load test file automatically
+        fetch('/zoom.m4a')
+            .then(response => response.blob())
+            .then(blob => {
+                audioFile = new File([blob], 'zoom.m4a', { type: 'audio/m4a' });
+                log('Loaded test file: zoom.m4a', 'success');
+                updateButtonStates();
+            })
+            .catch(() => {
+                log('No test file found, please select an audio file', 'warning');
+            });
+
+        // File inputs
+        document.getElementById('audioFile').addEventListener('change', (e) => {
+            audioFile = e.target.files[0];
+            if (audioFile) {
+                log(`Audio loaded: ${audioFile.name} (${(audioFile.size / 1024).toFixed(2)} KB)`, 'success');
+                updateButtonStates();
+            }
+        });
+
+        document.getElementById('imageFile').addEventListener('change', (e) => {
+            imageFile = e.target.files[0];
+            if (imageFile) {
+                log(`Image loaded: ${imageFile.name} (${(imageFile.size / 1024).toFixed(2)} KB)`, 'success');
+            }
+        });
+
+        // FPS slider
+        document.getElementById('fps').addEventListener('input', (e) => {
+            document.getElementById('fpsValue').textContent = `${e.target.value} fps`;
+        });
+
+        // Bar Width slider
+        document.getElementById('barWidth').addEventListener('input', (e) => {
+            document.getElementById('barWidthValue').textContent = `${e.target.value} px`;
+        });
+
+        // Bar Gap slider
+        document.getElementById('barGap').addEventListener('input', (e) => {
+            document.getElementById('barGapValue').textContent = `${e.target.value}%`;
+        });
+
+        // Waveform Height slider
+        document.getElementById('waveformHeight').addEventListener('input', (e) => {
+            document.getElementById('waveformHeightValue').textContent = `${e.target.value}%`;
+        });
+
+        // Get current settings
+        function getSettings() {
+            return {
+                style: document.getElementById('vizStyle').value,
+                backgroundColor: document.getElementById('bgColor').value,
+                waveformColor: document.getElementById('waveColor').value,
+                playheadColor: document.getElementById('playheadColor').value,
+                fps: parseInt(document.getElementById('fps').value),
+                barWidth: parseInt(document.getElementById('barWidth').value),
+                barGap: parseInt(document.getElementById('barGap').value) / 100, // Convert to 0-1 range
+                backgroundImage: imageFile,
+                text: document.getElementById('textOverlay').value,
+                waveformPosition: document.getElementById('waveformPosition').value,
+                waveformHeight: parseInt(document.getElementById('waveformHeight').value) / 100
+            };
+        }
+
+        // Update button states
+        function updateButtonStates() {
+            document.getElementById('previewBtn').disabled = !audioFile;
+            document.getElementById('animateBtn').disabled = !audioFile;
+            document.getElementById('createVideoBtn').disabled = !audioFile || !generatedFrames;
+        }
+
+        // Generate preview frame
+        document.getElementById('previewBtn').addEventListener('click', async () => {
+            if (!audioFile) return;
+
+            const btn = document.getElementById('previewBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Generating...';
+
+            try {
+                log('Generating preview frame...', 'info');
+                const settings = getSettings();
+
+                const blob = await generatePreviewFrame(audioFile, settings);
+
+                // Clear any existing video and show canvas
+                const videoEl = document.getElementById('videoPreview');
+                videoEl.style.display = 'none';
+                videoEl.src = '';
+                canvas.style.display = 'block';
+
+                // Display on canvas
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = 1280;  // Fixed dimensions
+                    canvas.height = 720;
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = URL.createObjectURL(blob);
+
+                log('Preview generated successfully', 'success');
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🖼️ Generate Preview Frame';
+                updateButtonStates();
+            }
+        });
+
+        // Generate animation frames
+        document.getElementById('animateBtn').addEventListener('click', async () => {
+            if (!audioFile) return;
+
+            const btn = document.getElementById('animateBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Generating frames... <span class="loading"></span>';
+
+            try {
+                const settings = getSettings();
+                log(`Generating frames at ${settings.fps} fps...`, 'info');
+
+                const startTime = Date.now();
+                const result = await generateWaveformFrames(audioFile, settings);
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                generatedFrames = result;
+
+                // Update stats
+                document.getElementById('stats').style.display = 'grid';
+                document.getElementById('statDuration').textContent = `${result.duration.toFixed(2)}s`;
+                document.getElementById('statFrames').textContent = result.frames.length;
+                document.getElementById('statTime').textContent = `${elapsed}s`;
+
+                log(`Generated ${result.frames.length} frames in ${elapsed}s`, 'success');
+
+                // Show first frame as preview
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = 1280;  // Fixed dimensions
+                    canvas.height = 720;
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = URL.createObjectURL(result.frames[0]);
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🎬 Generate Animation Frames';
+                updateButtonStates();
+            }
+        });
+
+        // Create video
+        document.getElementById('createVideoBtn').addEventListener('click', async () => {
+            if (!audioFile || !generatedFrames) return;
+
+            const btn = document.getElementById('createVideoBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Creating video... <span class="loading"></span>';
+
+            try {
+                log('Creating video from frames...', 'info');
+
+                const startTime = Date.now();
+                const audioExt = audioFile.name.split('.').pop()?.toLowerCase() || 'mp3';
+
+                videoBlob = await createVideoFromFrames(
+                    generatedFrames.frames,
+                    audioFile,
+                    generatedFrames.fps,
+                    audioExt
+                );
+
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(2);
+                const sizeKB = (videoBlob.size / 1024).toFixed(2);
+
+                // Update stats
+                document.getElementById('statSize').textContent = `${sizeKB} KB`;
+
+                // Show video preview
+                const videoEl = document.getElementById('videoPreview');
+                videoEl.src = URL.createObjectURL(videoBlob);
+                videoEl.style.display = 'block';
+                canvas.style.display = 'none';
+
+                log(`Video created: ${sizeKB} KB in ${elapsed}s`, 'success');
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '📹 Create Video';
+                updateButtonStates();
+            }
+        });
+
+        updateButtonStates();
+        log('Ready! Select an audio file to begin.', 'info');
+
+            }); // ffmpegModule
+        }); // vizModule
+    </script>
+</body>
+</html>

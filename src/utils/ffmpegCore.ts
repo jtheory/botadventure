@@ -422,3 +422,100 @@ export async function probeFile(file: File | Uint8Array, filename: string): Prom
 export function isFFmpegReady(): boolean {
   return ffmpegLoaded;
 }
+
+/**
+ * Create video from frame sequence and audio
+ */
+export async function createVideoFromFrames(
+  frames: Blob[],
+  audioFile: File | Uint8Array,
+  fps: number = 10,
+  audioExt: string = 'mp3'
+): Promise<Blob> {
+  const ff = await getFFmpeg();
+  lastFFmpegError = '';
+
+  console.log(`Creating video from ${frames.length} frames at ${fps} fps...`);
+
+  try {
+    // Clean up any existing files
+    for (let i = 0; i < frames.length; i++) {
+      try {
+        await ff.deleteFile(`frame_${i.toString().padStart(5, '0')}.jpg`);
+      } catch {}
+    }
+    try {
+      await ff.deleteFile(`audio.${audioExt}`);
+      await ff.deleteFile('output.mp4');
+    } catch {}
+
+    // Write frames to FFmpeg filesystem
+    console.log('Writing frames to FFmpeg...');
+    for (let i = 0; i < frames.length; i++) {
+      const frameData = await fetchFile(frames[i]);
+      const frameFileName = `frame_${i.toString().padStart(5, '0')}.jpg`;
+      await ff.writeFile(frameFileName, frameData);
+
+      // Log progress every 25%
+      if (i % Math.floor(frames.length / 4) === 0) {
+        console.log(`Wrote ${i + 1}/${frames.length} frames`);
+      }
+    }
+
+    // Write audio file
+    console.log('Writing audio file...');
+    const audioData = audioFile instanceof File ? await fetchFile(audioFile) : audioFile;
+    await ff.writeFile(`audio.${audioExt}`, audioData);
+
+    // Create video from frames and audio
+    console.log('Combining frames and audio...');
+    const result = await ff.exec([
+      '-framerate', fps.toString(),
+      '-i', 'frame_%05d.jpg',  // Input pattern for frame sequence
+      '-i', `audio.${audioExt}`,
+      '-c:v', 'libx264',
+      '-preset', 'fast',       // Balance between speed and compression
+      '-crf', '23',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ar', '44100',
+      '-ac', '2',
+      '-pix_fmt', 'yuv420p',
+      '-shortest',              // Stop when audio ends
+      '-movflags', '+faststart',
+      'output.mp4'
+    ]);
+
+    if (result !== 0) {
+      const errorDetail = lastFFmpegError || 'Unknown error during frame video creation';
+      throw new Error(`FFmpeg frame video failed with code ${result}: ${errorDetail}`);
+    }
+
+    // Read output
+    const data = await ff.readFile('output.mp4');
+    const blobData = data instanceof Uint8Array ? data : new Uint8Array(data as any);
+
+    console.log('Video created successfully from frames');
+    return new Blob([blobData], { type: 'video/mp4' });
+
+  } catch (error) {
+    console.error('Frame video creation error:', error);
+    throw error;
+  } finally {
+    // Cleanup
+    console.log('Cleaning up temporary files...');
+    try {
+      // Clean up frames
+      for (let i = 0; i < frames.length; i++) {
+        try {
+          await ff.deleteFile(`frame_${i.toString().padStart(5, '0')}.jpg`);
+        } catch {}
+      }
+      // Clean up audio and output
+      await ff.deleteFile(`audio.${audioExt}`);
+      await ff.deleteFile('output.mp4');
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}

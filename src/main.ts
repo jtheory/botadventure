@@ -172,6 +172,12 @@ class BotAdventureApp {
                 <div id="audio-conversion-status" style="margin-top: 10px; display: none; padding: 10px; background: var(--color-bg-secondary); border-radius: 4px;">
                   <span style="opacity: 0.8;">⏳ Converting audio to video...</span>
                 </div>
+                <div id="audio-viz-options" style="margin-top: 10px; padding: 10px; background: var(--color-bg-secondary); border-radius: 4px; display: none;">
+                  <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer;">
+                    <input type="checkbox" id="use-waveform-viz" checked style="cursor: pointer;">
+                    <span>🎵 Use waveform visualization</span>
+                  </label>
+                </div>
                 <small style="opacity: 0.7">MP3, M4A, or WAV. Will create a video with the background image (or black background)</small>
               </div>
 
@@ -582,9 +588,13 @@ class BotAdventureApp {
         // Upload video to Bluesky
         const uploadResponse = await this.bluesky.uploadVideo(videoBlob)
 
+        // Use the same alt text as we would for images
+        const altText = this.combineSceneAndChoices(imageText, choices)
+
         postResponse = await this.bluesky.createPost({
           text: postText.trim() || `🎵 Audio Post`,
           videoBlob: uploadResponse,
+          videoAlt: altText,
           replyTo: this.editingReplyTo ? {
             root: {
               uri: this.rootPost ? this.rootPost.uri : this.editingReplyTo.uri,

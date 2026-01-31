@@ -616,9 +616,11 @@ export class SceneEditor {
     // Update UI
     const nameSpan = document.getElementById('audio-file-name')
     const removeBtn = document.getElementById('remove-audio-button')
+    const vizOptions = document.getElementById('audio-viz-options')
 
     if (nameSpan) nameSpan.textContent = file.name
     if (removeBtn) removeBtn.style.display = 'inline-block'
+    if (vizOptions) vizOptions.style.display = 'block'
 
     // Store the audio file and clear previous conversion
     this.audioFile = file
@@ -674,22 +676,71 @@ export class SceneEditor {
         audioConversionStatus.innerHTML = '<span style="opacity: 0.8;">⏳ Converting audio to video...</span>'
       }
 
-      console.log('Importing audioToVideo module...')
-      // Import and convert
-      const { createVideoFromAudio } = await import('../utils/audioToVideo')
+      // Check if waveform visualization is enabled
+      const useWaveformViz = (document.getElementById('use-waveform-viz') as HTMLInputElement)?.checked ?? false
 
-      // Get background image file if available
-      let backgroundImageFile: File | null = null
-      if (this.lastBackgroundImage) {
-        console.log('Converting background image from data URL...')
-        const response = await fetch(this.lastBackgroundImage)
-        const blob = await response.blob()
-        backgroundImageFile = new File([blob], 'background.jpg', { type: 'image/jpeg' })
+      if (useWaveformViz) {
+        console.log('Using waveform visualization...')
+
+        // Import visualization modules
+        const { generateWaveformFrames } = await import('../utils/audioVisualizer')
+        const { createVideoFromFrames } = await import('../utils/ffmpegCore')
+
+        // Get scene text and choices for overlay
+        const imageText = document.getElementById('image-text') as HTMLTextAreaElement
+        const choices = document.getElementById('choices') as HTMLTextAreaElement
+        const sceneText = imageText?.value || ''
+        const choicesText = choices?.value || ''
+
+        // Combine scene and choices for overlay text
+        const overlayText = this.combineSceneAndChoices(sceneText, choicesText)
+
+        // Convert background image data URL to Blob if present
+        let backgroundImageBlob: Blob | null = null
+        if (this.lastBackgroundImage) {
+          const response = await fetch(this.lastBackgroundImage)
+          backgroundImageBlob = await response.blob()
+        }
+
+        // Generate waveform frames with text overlay and background image
+        const { frames, duration, fps } = await generateWaveformFrames(this.audioFile, {
+          backgroundImage: backgroundImageBlob,
+          text: overlayText || undefined,
+          waveformColor: '#00bfff', // Consistent with theme accent color
+          playheadColor: '#ffffff'
+        })
+
+        console.log(`Generated ${frames.length} frames at ${fps} FPS for ${duration}s`)
+
+        // Get audio extension from file name
+        const audioExt = this.audioFile.name.split('.').pop()?.toLowerCase() || 'mp3'
+
+        // Convert frames to video
+        this.convertedVideoBlob = await createVideoFromFrames(
+          frames,
+          this.audioFile,
+          fps,
+          audioExt
+        )
+      } else {
+        console.log('Using simple audio + image conversion...')
+        // Import and convert using simple method
+        const { createVideoFromAudio } = await import('../utils/audioToVideo')
+
+        // Get background image file if available
+        let backgroundImageFile: File | null = null
+        if (this.lastBackgroundImage) {
+          console.log('Converting background image from data URL...')
+          const response = await fetch(this.lastBackgroundImage)
+          const blob = await response.blob()
+          backgroundImageFile = new File([blob], 'background.jpg', { type: 'image/jpeg' })
+        }
+
+        console.log('Calling createVideoFromAudio...')
+        // Convert audio to video
+        this.convertedVideoBlob = await createVideoFromAudio(this.audioFile, backgroundImageFile)
       }
 
-      console.log('Calling createVideoFromAudio...')
-      // Convert audio to video
-      this.convertedVideoBlob = await createVideoFromAudio(this.audioFile, backgroundImageFile)
       console.log('Video conversion complete, size:', this.convertedVideoBlob.size)
 
       // Update preview

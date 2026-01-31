@@ -7,6 +7,7 @@ export interface PostOptions {
   imageAlt?: string
   imageDimensions?: { width: number; height: number }
   videoBlob?: any
+  videoAlt?: string
   replyTo?: {
     root: { uri: string; cid: string }
     parent: { uri: string; cid: string }
@@ -40,6 +41,7 @@ export class BlueskyService {
       postData.embed = {
         $type: 'app.bsky.embed.video',
         video: options.videoBlob,
+        alt: options.videoAlt || '',
       }
     } else if (options.imageBlob) {
       postData.embed = {

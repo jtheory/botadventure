@@ -12,29 +12,26 @@
 
 ## Audio-to-Video Feature
 
-### Phase 1 - Basic Implementation (Current)
-- [ ] Install FFmpeg.wasm dependencies
-- [ ] Create basic audio+image to MP4 converter
-- [ ] Add simple audio upload UI to post composer
-- [ ] Test MP4 upload to Bluesky
+### ✅ Completed
+- [x] Install FFmpeg.wasm dependencies
+- [x] Create basic audio+image to MP4 converter
+- [x] Add simple audio upload UI to post composer
+- [x] Test MP4 upload to Bluesky
+- [x] Create waveform visualization with animated playhead
+- [x] Add background image support
+- [x] Add visualization toggle (waveform vs simple)
+- [x] Text overlay on video frames
+- [x] Alt text for video accessibility
 
-### Phase 2 - Browser Recording
+### Next Phase - Browser Recording
 - [ ] Add browser audio recording with MediaRecorder API
 - [ ] Add record/stop/playback controls
 - [ ] Convert WebM audio to compatible format
 
-### Phase 3 - Basic Visualization
-- [ ] Create simple waveform visualization
-- [ ] Add solid color background options
-- [ ] Generate thumbnail frame for video
-
-### Phase 4 - Advanced Visualizations
+### Future Enhancements
 - [ ] Create scrolling amplitude visualization (bars moving across screen)
 - [ ] Add spectrum analyzer visualization
-- [ ] Create progress waveform (shows playhead moving)
-- [ ] Add visualization selector UI
-
-### Phase 5 - Polish
+- [ ] Generate thumbnail frame for video preview
 - [ ] Add audio trimming/editing
 - [ ] Multiple audio track support
 - [ ] Fade in/out effects

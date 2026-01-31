@@ -162,6 +162,20 @@ class BotAdventureApp {
               </div>
 
               <div class="form-group">
+                <label for="audio-file">Audio (optional - converts to video)</label>
+                <input type="file" id="audio-file-input" accept="audio/mp3,audio/wav,audio/m4a,audio/mp4,audio/mpeg,audio/x-m4a" style="display: none;">
+                <div id="audio-controls" style="display: flex; gap: 10px; align-items: center;">
+                  <button type="button" id="audio-file-button" class="secondary-button" style="flex: 0 0 auto;">🎵 Choose Audio</button>
+                  <span id="audio-file-name" style="flex: 1; opacity: 0.7; font-size: 0.9rem;">No audio selected</span>
+                  <button type="button" id="remove-audio-button" class="secondary-button" style="display: none; flex: 0 0 auto;">Remove</button>
+                </div>
+                <div id="audio-conversion-status" style="margin-top: 10px; display: none; padding: 10px; background: var(--color-bg-secondary); border-radius: 4px;">
+                  <span style="opacity: 0.8;">⏳ Converting audio to video...</span>
+                </div>
+                <small style="opacity: 0.7">MP3, M4A, or WAV. Will create a video with the background image (or black background)</small>
+              </div>
+
+              <div class="form-group">
                 <label for="choices">Choices (optional, one per line)</label>
                 <textarea id="choices" placeholder="A) Go left&#10;B) Go right&#10;C) Turn back" rows="4"></textarea>
                 <small style="opacity: 0.7">Choices go in the image if image text exists, otherwise in post text</small>
@@ -504,14 +518,18 @@ class BotAdventureApp {
     }
 
     const statusDiv = document.getElementById('post-status')!
+    const audioConversionStatus = document.getElementById('audio-conversion-status')!
     const choicesList = choices
       .split('\n')
       .map(c => c.trim())
       .filter(c => c.length > 0)
 
+    // Get audio file if present
+    const audioFile = this.sceneEditor.getAudioFile()
+
     // Validate that we have something to post
-    if (!postText.trim() && !imageText.trim()) {
-      this.showStatus(statusDiv, 'Please enter either post text or image text', 'error')
+    if (!postText.trim() && !imageText.trim() && !audioFile) {
+      this.showStatus(statusDiv, 'Please enter post text, image text, or attach audio', 'error')
       return
     }
 
@@ -521,7 +539,64 @@ class BotAdventureApp {
     try {
       let postResponse
 
-      if (imageText.trim()) {
+      // Check if we have audio to convert to video
+      if (audioFile) {
+        let videoBlob: Blob
+
+        // Check if we already have a converted video
+        const convertedVideo = this.sceneEditor.getConvertedVideoBlob()
+        if (convertedVideo) {
+          // Use the pre-converted video
+          videoBlob = convertedVideo
+          this.showStatus(statusDiv, 'Using pre-converted video...', 'info')
+        } else {
+          // Import the conversion function
+          const { createVideoFromAudio } = await import('./utils/audioToVideo')
+
+          // Show conversion status
+          if (audioConversionStatus) {
+            audioConversionStatus.style.display = 'block'
+          }
+          this.showStatus(statusDiv, 'Converting audio to video...', 'info')
+
+          // Get background image file if available
+          let backgroundImageFile: File | null = null
+          if (backgroundImage) {
+            // Convert data URL to File
+            const response = await fetch(backgroundImage)
+            const blob = await response.blob()
+            backgroundImageFile = new File([blob], 'background.jpg', { type: 'image/jpeg' })
+          }
+
+          // Convert audio to video
+          videoBlob = await createVideoFromAudio(audioFile, backgroundImageFile)
+
+          // Hide conversion status
+          if (audioConversionStatus) {
+            audioConversionStatus.style.display = 'none'
+          }
+        }
+
+        this.showStatus(statusDiv, 'Uploading video...', 'info')
+
+        // Upload video to Bluesky
+        const uploadResponse = await this.bluesky.uploadVideo(videoBlob)
+
+        postResponse = await this.bluesky.createPost({
+          text: postText.trim() || `🎵 Audio Post`,
+          videoBlob: uploadResponse,
+          replyTo: this.editingReplyTo ? {
+            root: {
+              uri: this.rootPost ? this.rootPost.uri : this.editingReplyTo.uri,
+              cid: this.rootPost ? this.rootPost.cid : this.editingReplyTo.cid,
+            },
+            parent: {
+              uri: this.editingReplyTo.uri,
+              cid: this.editingReplyTo.cid,
+            },
+          } : undefined,
+        })
+      } else if (imageText.trim()) {
         // Generate and post with image
         this.showStatus(statusDiv, 'Generating image...', 'info')
         const imageResult = await this.imageGenerator.generateSceneImage(imageText, choicesList, backgroundImage)

@@ -6,6 +6,7 @@ export interface PostOptions {
   imageBlob?: any
   imageAlt?: string
   imageDimensions?: { width: number; height: number }
+  videoBlob?: any
   replyTo?: {
     root: { uri: string; cid: string }
     parent: { uri: string; cid: string }
@@ -34,8 +35,13 @@ export class BlueskyService {
       postData.reply = options.replyTo
     }
 
-    // Add image embed if provided
-    if (options.imageBlob) {
+    // Add image or video embed if provided
+    if (options.videoBlob) {
+      postData.embed = {
+        $type: 'app.bsky.embed.video',
+        video: options.videoBlob,
+      }
+    } else if (options.imageBlob) {
       postData.embed = {
         $type: 'app.bsky.embed.images',
         images: [{
@@ -64,6 +70,14 @@ export class BlueskyService {
     const agent = this.getAgent()
     const response = await agent.uploadBlob(blob, {
       encoding: blob.type || 'image/png',
+    })
+    return response.data.blob
+  }
+
+  async uploadVideo(blob: Blob): Promise<any> {
+    const agent = this.getAgent()
+    const response = await agent.uploadBlob(blob, {
+      encoding: 'video/mp4',
     })
     return response.data.blob
   }

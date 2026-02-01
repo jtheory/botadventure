@@ -239,6 +239,11 @@
 <body>
     <h1>🎬 FFmpeg Preset Tester</h1>
 
+    <div style="max-width: 800px; margin: 0 auto 20px; padding: 15px; background: #2a2a2a; border: 1px solid #00bfff; border-radius: 8px; color: #aaa; text-align: center;">
+        <strong style="color: #00bfff;">Testing Fast Presets Only</strong><br>
+        Showing only viable options for production use. Slow presets (simple, copyAudio, etc.) are hidden.
+    </div>
+
     <div class="controls">
         <div class="file-inputs">
             <div class="file-input">
@@ -250,6 +255,75 @@
                 <input type="file" id="imageFile" accept="image/*">
             </div>
         </div>
+
+        <details style="margin-top: 15px; padding: 10px; background: #1a1a1a; border: 1px solid #444; border-radius: 4px;">
+            <summary style="cursor: pointer; color: #00bfff; font-weight: bold;">
+                ⚙️ Advanced Options
+                <span id="settingsStatus" style="font-size: 12px; margin-left: 10px; color: #00ff00;">✓ Using Production Settings</span>
+            </summary>
+
+            <div style="margin-top: 10px; margin-bottom: 15px; padding: 10px; background: #2a2a2a; border-radius: 4px;">
+                <h4 style="margin: 0 0 10px 0; color: #00bfff; font-size: 14px;">
+                    Still Image Encoding
+                    <small style="font-weight: normal; color: #888; font-size: 11px;">(from STILL_IMAGE_SETTINGS)</small>
+                </h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div>
+                        <label for="framerate" style="display: block; margin-bottom: 5px; font-size: 13px;">
+                            Framerate: <span id="framerateValue">1</span> fps
+                        </label>
+                        <input type="range" id="framerate" min="0.1" max="5" step="0.1" value="1"
+                               style="width: 100%;" oninput="document.getElementById('framerateValue').textContent = this.value">
+                        <small style="color: #888; font-size: 11px;">Lower = faster encoding, smaller files</small>
+                    </div>
+                    <div>
+                        <label for="gopSize" style="display: block; margin-bottom: 5px; font-size: 13px;">
+                            GOP Size: <span id="gopSizeValue">250</span>
+                        </label>
+                        <input type="range" id="gopSize" min="30" max="9999" step="1" value="250"
+                               style="width: 100%;" oninput="document.getElementById('gopSizeValue').textContent = this.value">
+                        <small style="color: #888; font-size: 11px;">Larger = smaller files (for still images)</small>
+                    </div>
+                    <div>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 13px;">
+                            <input type="checkbox" id="tuneStillImage" style="width: auto;">
+                            Use -tune stillimage
+                        </label>
+                        <small style="color: #888; font-size: 11px;">Optimize encoder for still images</small>
+                    </div>
+                    <div>
+                        <label for="threads" style="display: block; margin-bottom: 5px; font-size: 13px;">
+                            Threads: <span id="threadsValue">auto</span>
+                        </label>
+                        <input type="range" id="threads" min="0" max="8" step="1" value="0"
+                               style="width: 100%;" oninput="document.getElementById('threadsValue').textContent = this.value === '0' ? 'auto' : this.value">
+                        <small style="color: #888; font-size: 11px;">0 = auto, higher = faster (if cores available)</small>
+                    </div>
+                </div>
+            </div>
+
+            <div style="padding: 10px; background: #2a2a2a; border-radius: 4px;">
+                <h4 style="margin: 0 0 10px 0; color: #00bfff; font-size: 14px;">Waveform Visualization</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div>
+                        <label for="waveformFps" style="display: block; margin-bottom: 5px; font-size: 13px;">
+                            Waveform FPS: <span id="waveformFpsValue">10</span>
+                        </label>
+                        <input type="range" id="waveformFps" min="5" max="30" step="1" value="10"
+                               style="width: 100%;" oninput="document.getElementById('waveformFpsValue').textContent = this.value">
+                        <small style="color: #888; font-size: 11px;">Animation smoothness vs encoding time</small>
+                    </div>
+                    <div>
+                        <label for="barWidth" style="display: block; margin-bottom: 5px; font-size: 13px;">
+                            Bar Width: <span id="barWidthValue">4</span>px
+                        </label>
+                        <input type="range" id="barWidth" min="1" max="10" step="1" value="4"
+                               style="width: 100%;" oninput="document.getElementById('barWidthValue').textContent = this.value">
+                        <small style="color: #888; font-size: 11px;">Waveform bar thickness</small>
+                    </div>
+                </div>
+            </div>
+        </details>
 
         <div class="batch-controls">
             <button class="batch-button" onclick="runAllTests()">🚀 Run All Tests</button>
@@ -286,8 +360,23 @@
     <script type="module">
         // We need to import the compiled JavaScript, not TypeScript
         // During dev, Vite will handle the transformation
-        import('/src/utils/ffmpegCore.ts').then(module => {
-            const { getFFmpeg, runConversion, runTwoPassConversion, conversionPresets, probeFile } = module;
+        const ffmpegModule = await import('/src/utils/ffmpegCore.ts');
+        const { getFFmpeg, runConversion, runTwoPassConversion, conversionPresets, probeFile, createVideoFromFrames, STILL_IMAGE_SETTINGS, WAVEFORM_SETTINGS } = ffmpegModule;
+
+        const visualizerModule = await import('/src/utils/audioVisualizer.ts');
+        const { generateWaveformFrames } = visualizerModule;
+
+        // Log production settings on load
+        console.log('📋 Production Settings:', { STILL_IMAGE_SETTINGS, WAVEFORM_SETTINGS });
+
+        // Add waveform preset to the list
+        conversionPresets.waveform = {
+            name: 'Waveform Visualization',
+            description: 'Animated waveform with playhead (like the app uses)',
+            getCommand: () => [] // Special handling below
+        };
+
+        (function() {
 
         const logEl = document.getElementById('log');
         const presetGrid = document.getElementById('presetGrid');
@@ -318,9 +407,60 @@
             }
         });
 
+        // Initialize controls with production defaults
+        function initializeControls() {
+            document.getElementById('framerate').value = STILL_IMAGE_SETTINGS.framerate;
+            document.getElementById('framerateValue').textContent = STILL_IMAGE_SETTINGS.framerate;
+            document.getElementById('gopSize').value = STILL_IMAGE_SETTINGS.gopSize;
+            document.getElementById('gopSizeValue').textContent = STILL_IMAGE_SETTINGS.gopSize;
+            document.getElementById('tuneStillImage').checked = STILL_IMAGE_SETTINGS.tuneStillImage;
+            document.getElementById('threads').value = STILL_IMAGE_SETTINGS.threads;
+            document.getElementById('threadsValue').textContent = STILL_IMAGE_SETTINGS.threads === 0 ? 'auto' : STILL_IMAGE_SETTINGS.threads;
+
+            document.getElementById('waveformFps').value = WAVEFORM_SETTINGS.fps;
+            document.getElementById('waveformFpsValue').textContent = WAVEFORM_SETTINGS.fps;
+            document.getElementById('barWidth').value = WAVEFORM_SETTINGS.barWidth;
+            document.getElementById('barWidthValue').textContent = WAVEFORM_SETTINGS.barWidth;
+        }
+
+        // Check if current settings match production
+        function updateSettingsStatus() {
+            const framerate = parseFloat(document.getElementById('framerate').value);
+            const gopSize = parseInt(document.getElementById('gopSize').value);
+            const tuneStillImage = document.getElementById('tuneStillImage').checked;
+            const threads = parseInt(document.getElementById('threads').value);
+            const waveformFps = parseInt(document.getElementById('waveformFps').value);
+            const barWidth = parseInt(document.getElementById('barWidth').value);
+
+            const matchesStillImage = framerate === STILL_IMAGE_SETTINGS.framerate &&
+                                     gopSize === STILL_IMAGE_SETTINGS.gopSize &&
+                                     tuneStillImage === STILL_IMAGE_SETTINGS.tuneStillImage &&
+                                     threads === STILL_IMAGE_SETTINGS.threads;
+
+            const matchesWaveform = waveformFps === WAVEFORM_SETTINGS.fps &&
+                                   barWidth === WAVEFORM_SETTINGS.barWidth;
+
+            const statusEl = document.getElementById('settingsStatus');
+            if (matchesStillImage && matchesWaveform) {
+                statusEl.textContent = '✓ Using Production Settings';
+                statusEl.style.color = '#00ff00';
+            } else {
+                statusEl.textContent = '⚠ Custom Settings (not production)';
+                statusEl.style.color = '#ff8800';
+            }
+        }
+
         // Create preset cards
         function createPresetCards() {
+            // Only show fast/viable presets - filter out the slow ones
+            const viablePresets = ['production', 'balanced', 'compressed', 'waveform'];
+
             for (const [key, preset] of Object.entries(conversionPresets)) {
+                // Skip slow presets
+                if (!viablePresets.includes(key)) {
+                    continue;
+                }
+
                 const card = document.createElement('div');
                 card.className = 'preset-card';
                 card.id = `preset-${key}`;
@@ -336,6 +476,56 @@
             }
         }
 
+        // Apply advanced options to a preset
+        function applyAdvancedOptions(preset) {
+            const framerate = parseFloat(document.getElementById('framerate').value);
+            const gopSize = parseInt(document.getElementById('gopSize').value);
+            const tuneStillImage = document.getElementById('tuneStillImage').checked;
+            const threads = parseInt(document.getElementById('threads').value);
+
+            // Clone the preset to avoid modifying the original
+            const modifiedPreset = {
+                ...preset,
+                getCommand: (inputs) => {
+                    const baseCommand = preset.getCommand(inputs);
+                    const newCommand = [...baseCommand];
+
+                    // Replace framerate if it exists in the command
+                    const framerateIndex = newCommand.indexOf('-framerate');
+                    if (framerateIndex !== -1 && framerate !== 1) {
+                        newCommand[framerateIndex + 1] = framerate.toString();
+                    }
+
+                    // Find the preset parameter and insert tune/GOP/threads after it
+                    const presetIndex = newCommand.indexOf('-preset');
+                    if (presetIndex !== -1) {
+                        let insertIndex = presetIndex + 2; // After preset value
+
+                        // Add tune stillimage
+                        if (tuneStillImage) {
+                            newCommand.splice(insertIndex, 0, '-tune', 'stillimage');
+                            insertIndex += 2;
+                        }
+
+                        // Add GOP size
+                        if (gopSize !== 250) {
+                            newCommand.splice(insertIndex, 0, '-g', gopSize.toString());
+                            insertIndex += 2;
+                        }
+
+                        // Add threads
+                        if (threads !== 0) {
+                            newCommand.splice(insertIndex, 0, '-threads', threads.toString());
+                        }
+                    }
+
+                    return newCommand;
+                }
+            };
+
+            return modifiedPreset;
+        }
+
         // Run a single preset
         window.runPreset = async function(presetKey) {
             if (!audioFile) {
@@ -343,7 +533,8 @@
                 return;
             }
 
-            const preset = conversionPresets[presetKey];
+            const basePreset = conversionPresets[presetKey];
+            const preset = applyAdvancedOptions(basePreset);
             const card = document.getElementById(`preset-${presetKey}`);
             const resultDiv = document.getElementById(`result-${presetKey}`);
             const button = card.querySelector('.preset-button');
@@ -355,16 +546,64 @@
             resultDiv.innerHTML = '';
 
             const startTime = Date.now();
-            log(`\n=== Testing ${preset.name} ===`, 'info');
+
+            // Log advanced settings if any are non-default
+            const advSettings = [];
+            const framerate = parseFloat(document.getElementById('framerate').value);
+            const gopSize = parseInt(document.getElementById('gopSize').value);
+            const tuneStillImage = document.getElementById('tuneStillImage').checked;
+            const threads = parseInt(document.getElementById('threads').value);
+            const waveformFps = parseInt(document.getElementById('waveformFps').value);
+            const barWidth = parseInt(document.getElementById('barWidth').value);
+
+            if (presetKey === 'waveform') {
+                // Log waveform-specific settings
+                if (waveformFps !== 10) advSettings.push(`fps=${waveformFps}`);
+                if (barWidth !== 4) advSettings.push(`barWidth=${barWidth}px`);
+            } else {
+                // Log still image encoding settings
+                if (framerate !== 1) advSettings.push(`framerate=${framerate}`);
+                if (gopSize !== 250) advSettings.push(`gop=${gopSize}`);
+                if (tuneStillImage) advSettings.push('tune=stillimage');
+                if (threads !== 0) advSettings.push(`threads=${threads}`);
+            }
+
+            log(`\n=== Testing ${basePreset.name} ===`, 'info');
+            if (advSettings.length > 0) {
+                log(`Advanced: ${advSettings.join(', ')}`, 'info');
+            }
 
             try {
                 // Initialize FFmpeg if needed
                 await getFFmpeg();
 
-                // Run the conversion
-                const blob = presetKey === 'twoPass'
-                    ? await runTwoPassConversion(audioFile, imageFile, getAudioExt())
-                    : await runConversion(preset, audioFile, imageFile, getAudioExt());
+                let blob;
+
+                // Handle different conversion methods
+                if (presetKey === 'waveform') {
+                    // Get waveform-specific options
+                    const waveformFps = parseInt(document.getElementById('waveformFps').value);
+                    const barWidth = parseInt(document.getElementById('barWidth').value);
+
+                    // Use waveform visualization
+                    log('Generating waveform frames...', 'info');
+                    const { frames, duration, fps } = await generateWaveformFrames(audioFile, {
+                        backgroundImage: imageFile,
+                        waveformColor: '#00bfff',
+                        playheadColor: '#ffffff',
+                        fps: waveformFps,
+                        barWidth: barWidth
+                    });
+                    log(`Generated ${frames.length} frames at ${fps} fps`, 'info');
+
+                    log('Creating video from frames...', 'info');
+                    const audioExt = getAudioExt();
+                    blob = await createVideoFromFrames(frames, audioFile, fps, audioExt);
+                } else if (presetKey === 'twoPass') {
+                    blob = await runTwoPassConversion(audioFile, imageFile, getAudioExt());
+                } else {
+                    blob = await runConversion(preset, audioFile, imageFile, getAudioExt());
+                }
 
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
                 const sizeKB = (blob.size / 1024).toFixed(2);
@@ -438,9 +677,10 @@
                 return;
             }
 
-            log('\n🚀 Running all presets...', 'warning');
+            log('\n🚀 Running all viable presets...', 'warning');
 
-            for (const key of Object.keys(conversionPresets)) {
+            const viablePresets = ['production', 'balanced', 'compressed', 'waveform'];
+            for (const key of viablePresets) {
                 await runPreset(key);
             }
 
@@ -449,11 +689,14 @@
 
         // Clear results
         window.clearResults = function() {
-            Object.keys(conversionPresets).forEach(key => {
+            const viablePresets = ['production', 'balanced', 'compressed', 'waveform'];
+            viablePresets.forEach(key => {
                 const card = document.getElementById(`preset-${key}`);
-                card.className = 'preset-card';
-                const resultDiv = document.getElementById(`result-${key}`);
-                resultDiv.innerHTML = '';
+                if (card) {
+                    card.className = 'preset-card';
+                    const resultDiv = document.getElementById(`result-${key}`);
+                    if (resultDiv) resultDiv.innerHTML = '';
+                }
             });
 
             Object.keys(results).forEach(key => delete results[key]);
@@ -539,9 +782,21 @@
             return audioFile ? audioFile.name.split('.').pop()?.toLowerCase() || 'mp3' : 'mp3';
         }
 
+        // Add event listeners to controls to update status
+        ['framerate', 'gopSize', 'tuneStillImage', 'threads', 'waveformFps', 'barWidth'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', updateSettingsStatus);
+                el.addEventListener('input', updateSettingsStatus);
+            }
+        });
+
         // Initialize
+        initializeControls();
+        updateSettingsStatus();
         createPresetCards();
         log('Ready! Select files and test different presets.', 'info');
+        log(`Production defaults loaded: framerate=${STILL_IMAGE_SETTINGS.framerate}, fps=${WAVEFORM_SETTINGS.fps}`, 'info');
 
         // Try loading default test file
         fetch('/zoom.m4a')
@@ -555,7 +810,7 @@
                 log('No default test file found', 'warning');
             });
 
-        }); // End of module import
+        })(); // End of IIFE
     </script>
 </body>
 </html>

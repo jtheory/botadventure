@@ -2,10 +2,13 @@
  * Audio visualization utilities for generating waveforms and other visualizations
  */
 
+import { WAVEFORM_SETTINGS, VIDEO_DIMENSIONS } from '../config/ffmpegSettings';
+
 export interface VisualizationOptions {
   backgroundColor: string;
-  waveformColor: string;
-  playheadColor: string;
+  waveformColor: string;  // Unplayed portion
+  waveformPlayedColor?: string;  // Played portion (defaults to darker version)
+  playheadColor: string;  // Deprecated - keeping for compatibility
   fps: number;
   style: 'bars' | 'line' | 'mirror';
   barWidth?: number; // Target width for each bar in pixels
@@ -14,24 +17,32 @@ export interface VisualizationOptions {
   text?: string; // Optional text overlay
   waveformPosition?: 'full' | 'bottom'; // Position of waveform
   waveformHeight?: number; // Height of waveform area as percentage (0-1)
+  waveformOverlayOpacity?: number; // Opacity of dark overlay on waveform area (0-1)
+  playAreaGlow?: boolean; // Use glow effect instead of playhead line
+  playAreaWidth?: number; // Width of play area glow in pixels
 }
 
-// Fixed dimensions optimized for Bluesky
-const VIDEO_WIDTH = 1280;
-const VIDEO_HEIGHT = 720;
+// Use centralized video dimensions
+const VIDEO_WIDTH = VIDEO_DIMENSIONS.width;
+const VIDEO_HEIGHT = VIDEO_DIMENSIONS.height;
 
+// Default options use centralized WAVEFORM_SETTINGS
 const defaultOptions: VisualizationOptions = {
-  backgroundColor: '#000000',
-  waveformColor: '#00bfff',
-  playheadColor: '#ffffff',
-  fps: 10, // 10 fps for smooth playhead
+  backgroundColor: WAVEFORM_SETTINGS.backgroundColor,
+  waveformColor: '#66d9ff',  // Light blue for unplayed
+  waveformPlayedColor: '#3399cc',  // Medium blue for played
+  playheadColor: WAVEFORM_SETTINGS.playheadColor,  // Kept for compatibility
+  fps: WAVEFORM_SETTINGS.fps,
   style: 'bars',
-  barWidth: 4,  // 4px wide bars
-  barGap: 0.2,   // 20% gap between bars
+  barWidth: WAVEFORM_SETTINGS.barWidth,
+  barGap: WAVEFORM_SETTINGS.barGap,
   backgroundImage: null,
   text: '',
-  waveformPosition: 'bottom',
-  waveformHeight: 0.15  // 15% of canvas height for better visibility
+  waveformPosition: WAVEFORM_SETTINGS.waveformPosition,
+  waveformHeight: WAVEFORM_SETTINGS.waveformHeight,
+  waveformOverlayOpacity: 0.6,  // 60% dark overlay on waveform area
+  playAreaGlow: true,  // Use glow instead of playhead line
+  playAreaWidth: 100  // Width of glow area in pixels
 };
 
 /**
@@ -187,6 +198,12 @@ async function drawWaveform(
     waveformHeight = height;
   }
 
+  // Add dark overlay on waveform area
+  if (options.waveformOverlayOpacity && options.waveformOverlayOpacity > 0) {
+    ctx.fillStyle = `rgba(0, 0, 0, ${options.waveformOverlayOpacity})`;
+    ctx.fillRect(0, waveformY, width, waveformHeight);
+  }
+
   const centerY = waveformY + waveformHeight / 2;
   const maxHeight = waveformHeight * 0.8; // Use 80% of waveform area
 
@@ -204,13 +221,37 @@ async function drawWaveform(
     for (let i = 0; i < sampleData.length; i++) {
       const x = i * actualBarWidth;
       const barHeight = sampleData[i] * maxHeight * 0.5;
+      const barProgress = i / sampleData.length;
 
-      // Change color for played portion
-      if (i / sampleData.length < progress) {
-        ctx.fillStyle = waveformColor + '60'; // Add transparency for played portion
+      // Determine color based on playback position
+      let barColor;
+      if (barProgress < progress) {
+        // Played portion - use medium blue
+        barColor = options.waveformPlayedColor || '#3399cc';
       } else {
-        ctx.fillStyle = waveformColor;
+        // Unplayed portion - use light blue
+        barColor = waveformColor;
       }
+
+      // Add glow effect near current play position
+      if (options.playAreaGlow && options.playAreaWidth) {
+        const distanceFromPlayhead = Math.abs(barProgress - progress);
+        const glowRange = (options.playAreaWidth / width);
+
+        if (distanceFromPlayhead < glowRange) {
+          // Calculate brightness based on distance
+          const glowStrength = 1 - (distanceFromPlayhead / glowRange);
+          const brighten = Math.floor(glowStrength * 60); // Max 60 brightness boost
+
+          // Parse hex color and brighten it
+          const r = Math.min(255, parseInt(barColor.slice(1,3), 16) + brighten);
+          const g = Math.min(255, parseInt(barColor.slice(3,5), 16) + brighten);
+          const b = Math.min(255, parseInt(barColor.slice(5,7), 16) + brighten);
+          barColor = `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+        }
+      }
+
+      ctx.fillStyle = barColor;
 
       // Draw mirrored bars with rounded corners for polish
       const radius = Math.min(2, barDrawWidth * 0.2); // Subtle rounding
@@ -293,22 +334,24 @@ async function drawWaveform(
     ctx.stroke();
   }
 
-  // Draw playhead (only in waveform area)
-  const playheadX = progress * width;
-  ctx.strokeStyle = playheadColor;
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(playheadX, waveformY);
-  ctx.lineTo(playheadX, waveformY + waveformHeight);
-  ctx.stroke();
+  // Optional: Draw traditional playhead line (disabled by default with playAreaGlow)
+  if (!options.playAreaGlow) {
+    const playheadX = progress * width;
+    ctx.strokeStyle = playheadColor;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(playheadX, waveformY);
+    ctx.lineTo(playheadX, waveformY + waveformHeight);
+    ctx.stroke();
 
-  // Draw playhead glow effect
-  ctx.strokeStyle = playheadColor + '40'; // Semi-transparent
-  ctx.lineWidth = 10;
-  ctx.beginPath();
-  ctx.moveTo(playheadX, waveformY);
-  ctx.lineTo(playheadX, waveformY + waveformHeight);
-  ctx.stroke();
+    // Draw playhead glow effect
+    ctx.strokeStyle = playheadColor + '40'; // Semi-transparent
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(playheadX, waveformY);
+    ctx.lineTo(playheadX, waveformY + waveformHeight);
+    ctx.stroke();
+  }
 }
 
 /**

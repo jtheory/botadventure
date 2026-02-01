@@ -1,5 +1,9 @@
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile } from '@ffmpeg/util';
+import { STILL_IMAGE_SETTINGS, WAVEFORM_SETTINGS, VIDEO_DIMENSIONS } from '../config/ffmpegSettings';
+
+// Re-export settings for test pages and other modules
+export { STILL_IMAGE_SETTINGS, WAVEFORM_SETTINGS, VIDEO_DIMENSIONS };
 
 // Singleton FFmpeg instance management
 let ffmpeg: FFmpeg | null = null;
@@ -25,26 +29,52 @@ export interface ConversionInputs {
 
 // Different conversion strategies we want to test
 export const conversionPresets: Record<string, ConversionPreset> = {
-  // Current production preset
+  // Current production preset - uses centralized settings
   production: {
-    name: 'Production',
-    description: 'Optimized for Bluesky - audio first, proper duration matching',
+    name: 'Production (Ultrafast)',
+    description: 'Fastest encoding, optimized for Bluesky (uses STILL_IMAGE_SETTINGS)',
     getCommand: ({ audioFile, imageFile, outputFile }) => [
       '-i', audioFile,      // Audio first
       '-loop', '1',
-      '-framerate', '1',    // 1 fps for smaller file
+      '-framerate', String(STILL_IMAGE_SETTINGS.framerate),
       '-i', imageFile,      // Image second
       '-map', '1:v',        // Map video from second input (image)
       '-map', '0:a',        // Map audio from first input
       '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-crf', '23',
+      '-preset', STILL_IMAGE_SETTINGS.preset,
+      '-crf', String(STILL_IMAGE_SETTINGS.crf),
+      '-c:a', STILL_IMAGE_SETTINGS.audioCodec,
+      '-b:a', STILL_IMAGE_SETTINGS.audioBitrate,
+      '-ar', STILL_IMAGE_SETTINGS.audioSampleRate,
+      '-ac', String(STILL_IMAGE_SETTINGS.audioChannels),
+      '-vf', `pad=ceil(iw/2)*2:ceil(ih/2)*2,format=${STILL_IMAGE_SETTINGS.pixelFormat}`,
+      '-shortest',
+      '-fflags', STILL_IMAGE_SETTINGS.fflags,
+      '-max_interleave_delta', STILL_IMAGE_SETTINGS.maxInterleaveDelta,
+      '-movflags', STILL_IMAGE_SETTINGS.movFlags,
+      outputFile
+    ]
+  },
+
+  // Balanced speed/quality
+  balanced: {
+    name: 'Balanced',
+    description: 'Better quality, still fast',
+    getCommand: ({ audioFile, imageFile, outputFile }) => [
+      '-i', audioFile,
+      '-loop', '1',
+      '-framerate', '1',
+      '-i', imageFile,
+      '-map', '1:v',
+      '-map', '0:a',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',  // Slightly slower but better quality
+      '-crf', '20',           // Better quality
       '-c:a', 'aac',
       '-b:a', '128k',
       '-ar', '44100',
       '-ac', '2',
       '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p',
-      '-t', '60',           // Max 60 seconds
       '-shortest',
       '-fflags', '+shortest',
       '-max_interleave_delta', '0',
@@ -112,10 +142,10 @@ export const conversionPresets: Record<string, ConversionPreset> = {
     }
   },
 
-  // Ultra-compressed for testing
+  // Smaller file size preset
   compressed: {
     name: 'Compressed',
-    description: 'Maximum compression for smallest file size',
+    description: 'Smaller file size - lower quality audio/video',
     getCommand: ({ audioFile, imageFile, outputFile }) => [
       '-i', audioFile,
       '-loop', '1',
@@ -124,7 +154,7 @@ export const conversionPresets: Record<string, ConversionPreset> = {
       '-map', '1:v',
       '-map', '0:a',
       '-c:v', 'libx264',
-      '-preset', 'veryslow',
+      '-preset', 'fast',   // Changed from veryslow for speed
       '-crf', '28',        // Lower quality for size
       '-c:a', 'aac',
       '-b:a', '64k',       // Lower bitrate
@@ -133,6 +163,8 @@ export const conversionPresets: Record<string, ConversionPreset> = {
       '-vf', 'scale=640:360,pad=ceil(iw/2)*2:ceil(ih/2)*2,format=yuv420p',
       '-shortest',
       '-fflags', '+shortest',
+      '-max_interleave_delta', '0',
+      '-movflags', '+faststart',
       outputFile
     ]
   }
@@ -467,22 +499,22 @@ export async function createVideoFromFrames(
     const audioData = audioFile instanceof File ? await fetchFile(audioFile) : audioFile;
     await ff.writeFile(`audio.${audioExt}`, audioData);
 
-    // Create video from frames and audio
+    // Create video from frames and audio (uses WAVEFORM_SETTINGS)
     console.log('Combining frames and audio...');
     const result = await ff.exec([
       '-framerate', fps.toString(),
       '-i', 'frame_%05d.jpg',  // Input pattern for frame sequence
       '-i', `audio.${audioExt}`,
       '-c:v', 'libx264',
-      '-preset', 'fast',       // Balance between speed and compression
-      '-crf', '23',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ar', '44100',
-      '-ac', '2',
-      '-pix_fmt', 'yuv420p',
+      '-preset', WAVEFORM_SETTINGS.videoPreset,
+      '-crf', String(WAVEFORM_SETTINGS.videoCrf),
+      '-c:a', WAVEFORM_SETTINGS.audioCodec,
+      '-b:a', WAVEFORM_SETTINGS.audioBitrate,
+      '-ar', WAVEFORM_SETTINGS.audioSampleRate,
+      '-ac', String(WAVEFORM_SETTINGS.audioChannels),
+      '-pix_fmt', WAVEFORM_SETTINGS.pixelFormat,
       '-shortest',              // Stop when audio ends
-      '-movflags', '+faststart',
+      '-movflags', WAVEFORM_SETTINGS.movFlags,
       'output.mp4'
     ]);
 

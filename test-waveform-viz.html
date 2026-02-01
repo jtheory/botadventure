@@ -229,12 +229,34 @@
             </div>
 
             <div class="control">
-                <label for="waveColor">Waveform Color</label>
-                <input type="color" id="waveColor" value="#00bfff">
+                <label for="waveColor">Waveform Color (Unplayed)</label>
+                <input type="color" id="waveColor" value="#66d9ff">
             </div>
 
             <div class="control">
-                <label for="playheadColor">Playhead Color</label>
+                <label for="wavePlayedColor">Waveform Color (Played)</label>
+                <input type="color" id="wavePlayedColor" value="#3399cc">
+            </div>
+
+            <div class="control">
+                <label for="waveformOverlay">Waveform Overlay Opacity</label>
+                <input type="range" id="waveformOverlay" min="0" max="100" value="60">
+                <div class="range-value" id="waveformOverlayValue">60%</div>
+            </div>
+
+            <div class="control">
+                <label for="playAreaGlow">Use Play Area Glow (not playhead)</label>
+                <input type="checkbox" id="playAreaGlow" checked style="width: auto; height: 20px;">
+            </div>
+
+            <div class="control">
+                <label for="playAreaWidth">Play Area Glow Width</label>
+                <input type="range" id="playAreaWidth" min="20" max="200" value="100">
+                <div class="range-value" id="playAreaWidthValue">100 px</div>
+            </div>
+
+            <div class="control">
+                <label for="playheadColor">Playhead Color (legacy)</label>
                 <input type="color" id="playheadColor" value="#ffffff">
             </div>
 
@@ -268,6 +290,19 @@
                 <label for="waveformHeight">Waveform Height (when bottom)</label>
                 <input type="range" id="waveformHeight" min="5" max="30" value="15">
                 <div class="range-value" id="waveformHeightValue">15%</div>
+            </div>
+        </div>
+
+        <h3>Beat Detection</h3>
+        <div class="buttons">
+            <button id="detectBeatsBtn">🎵 Detect Beats/Tempo</button>
+        </div>
+        <div id="beatInfo" style="display: none; margin-top: 10px; padding: 10px; background: #2a2a2a; border-radius: 4px;">
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 14px;">
+                <div><strong>Tempo:</strong> <span id="beatTempo">-</span> BPM</div>
+                <div><strong>Confidence:</strong> <span id="beatConfidence">-</span>%</div>
+                <div><strong>Beat Interval:</strong> <span id="beatInterval">-</span>s</div>
+                <div><strong>Strong Beat:</strong> <span id="beatStrong">-</span></div>
             </div>
         </div>
 
@@ -309,9 +344,11 @@
     <script type="module">
         import('/src/utils/audioVisualizer.ts').then(vizModule => {
             import('/src/utils/ffmpegCore.ts').then(ffmpegModule => {
+                import('/src/utils/beatDetection.ts').then(beatModule => {
 
         const { generateWaveformFrames, generatePreviewFrame } = vizModule;
         const { createVideoFromFrames } = ffmpegModule;
+        const { detectBeats, loadAudioBuffer } = beatModule;
 
         let audioFile = null;
         let imageFile = null;
@@ -377,12 +414,23 @@
             document.getElementById('waveformHeightValue').textContent = `${e.target.value}%`;
         });
 
+        // Waveform Overlay slider
+        document.getElementById('waveformOverlay').addEventListener('input', (e) => {
+            document.getElementById('waveformOverlayValue').textContent = `${e.target.value}%`;
+        });
+
+        // Play Area Width slider
+        document.getElementById('playAreaWidth').addEventListener('input', (e) => {
+            document.getElementById('playAreaWidthValue').textContent = `${e.target.value} px`;
+        });
+
         // Get current settings
         function getSettings() {
             return {
                 style: document.getElementById('vizStyle').value,
                 backgroundColor: document.getElementById('bgColor').value,
                 waveformColor: document.getElementById('waveColor').value,
+                waveformPlayedColor: document.getElementById('wavePlayedColor').value,
                 playheadColor: document.getElementById('playheadColor').value,
                 fps: parseInt(document.getElementById('fps').value),
                 barWidth: parseInt(document.getElementById('barWidth').value),
@@ -390,7 +438,10 @@
                 backgroundImage: imageFile,
                 text: document.getElementById('textOverlay').value,
                 waveformPosition: document.getElementById('waveformPosition').value,
-                waveformHeight: parseInt(document.getElementById('waveformHeight').value) / 100
+                waveformHeight: parseInt(document.getElementById('waveformHeight').value) / 100,
+                waveformOverlayOpacity: parseInt(document.getElementById('waveformOverlay').value) / 100,
+                playAreaGlow: document.getElementById('playAreaGlow').checked,
+                playAreaWidth: parseInt(document.getElementById('playAreaWidth').value)
             };
         }
 
@@ -399,7 +450,39 @@
             document.getElementById('previewBtn').disabled = !audioFile;
             document.getElementById('animateBtn').disabled = !audioFile;
             document.getElementById('createVideoBtn').disabled = !audioFile || !generatedFrames;
+            document.getElementById('detectBeatsBtn').disabled = !audioFile;
         }
+
+        // Beat detection
+        document.getElementById('detectBeatsBtn').addEventListener('click', async () => {
+            if (!audioFile) return;
+
+            const btn = document.getElementById('detectBeatsBtn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Analyzing...';
+
+            try {
+                log('Analyzing audio for beat detection...', 'info');
+
+                const audioBuffer = await loadAudioBuffer(audioFile);
+                const result = await detectBeats(audioBuffer);
+
+                // Display results
+                document.getElementById('beatInfo').style.display = 'block';
+                document.getElementById('beatTempo').textContent = result.tempo;
+                document.getElementById('beatConfidence').textContent = (result.confidence * 100).toFixed(1);
+                document.getElementById('beatInterval').textContent = result.beatInterval.toFixed(3);
+                document.getElementById('beatStrong').textContent = result.hasStrongBeat ? 'Yes ✓' : 'No';
+
+                log(`Beat detection complete: ${result.tempo} BPM (${result.hasStrongBeat ? 'strong' : 'weak'} beat)`, 'success');
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🎵 Detect Beats/Tempo';
+                updateButtonStates();
+            }
+        });
 
         // Generate preview frame
         document.getElementById('previewBtn').addEventListener('click', async () => {
@@ -531,6 +614,7 @@
         updateButtonStates();
         log('Ready! Select an audio file to begin.', 'info');
 
+                }); // beatModule
             }); // ffmpegModule
         }); // vizModule
     </script>

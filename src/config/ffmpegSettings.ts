@@ -43,7 +43,7 @@ export const WAVEFORM_SETTINGS = {
   waveformColor: '#00bfff',
   playheadColor: '#ffffff',
   waveformPosition: 'bottom' as const,
-  waveformHeight: 0.15,  // 15% of canvas height
+  waveformHeight: 0.10,  // 10% of canvas height
 
   // Video encoding (when converting frames to video)
   videoPreset: 'fast',
@@ -62,9 +62,9 @@ export const WAVEFORM_SETTINGS = {
 } as const;
 
 /**
- * Canvas dimensions - optimized for Bluesky display
+ * Canvas dimensions - 9:16 portrait for mobile viewing
  */
 export const VIDEO_DIMENSIONS = {
-  width: 1280,
-  height: 720,
+  width: 720,
+  height: 1280,
 } as const;

@@ -19,6 +19,13 @@ export class SceneEditor {
   private audioFile: File | null = null
   private convertedVideoBlob: Blob | null = null
   private isConvertingAudio = false
+  private videoPreviewOutdated = false
+  private lastVideoSettings = {
+    imageText: '',
+    choices: '',
+    backgroundImage: '',
+    useWaveform: true
+  }
 
   constructor(
     private callbacks: SceneEditorCallbacks,
@@ -141,6 +148,17 @@ export class SceneEditor {
     if (removeAudioBtn) {
       removeAudioBtn.addEventListener('click', () => {
         this.removeAudioFile()
+      })
+    }
+
+    // Waveform visualization toggle
+    const waveformCheckbox = document.getElementById('use-waveform-viz') as HTMLInputElement
+    if (waveformCheckbox) {
+      waveformCheckbox.addEventListener('change', () => {
+        if (this.audioFile) {
+          this.videoPreviewOutdated = true
+          this.schedulePreviewRefresh()
+        }
       })
     }
   }
@@ -269,6 +287,22 @@ export class SceneEditor {
       clearTimeout(this.previewRefreshTimer)
     }
 
+    // Check if video settings have changed
+    if (this.audioFile && this.convertedVideoBlob) {
+      const imageText = (document.getElementById('image-text') as HTMLTextAreaElement)?.value || ''
+      const choices = (document.getElementById('choices') as HTMLTextAreaElement)?.value || ''
+      const useWaveform = (document.getElementById('use-waveform-viz') as HTMLInputElement)?.checked ?? true
+
+      if (
+        imageText !== this.lastVideoSettings.imageText ||
+        choices !== this.lastVideoSettings.choices ||
+        this.lastBackgroundImage !== this.lastVideoSettings.backgroundImage ||
+        useWaveform !== this.lastVideoSettings.useWaveform
+      ) {
+        this.videoPreviewOutdated = true
+      }
+    }
+
     // Set status to indicate preview is updating
     const statusDiv = document.getElementById('preview-status')
     if (statusDiv) {
@@ -295,10 +329,8 @@ export class SceneEditor {
     const postValue = postText?.value || ''
     const choicesValue = choices?.value || ''
 
-    // Check if we have video content from audio conversion
-    if (this.convertedVideoBlob) {
-      // Show video preview
-      const videoUrl = URL.createObjectURL(this.convertedVideoBlob)
+    // Check if we have audio file and should show video preview/generate button
+    if (this.audioFile) {
       previewContent.innerHTML = ''
 
       // Add post text if present
@@ -309,32 +341,83 @@ export class SceneEditor {
         previewContent.appendChild(textDiv)
       }
 
-      // Add video element
-      const video = document.createElement('video')
-      video.src = videoUrl
-      video.controls = true
-      video.style.cssText = 'max-width: 100%; border-radius: 8px; display: block;'
-      previewContent.appendChild(video)
+      // Show video if we have one and it's not outdated
+      if (this.convertedVideoBlob && !this.videoPreviewOutdated) {
+        const videoUrl = URL.createObjectURL(this.convertedVideoBlob)
 
-      // Add stats
-      const statsDiv = document.createElement('div')
-      statsDiv.style.cssText = `
-        margin-top: 1rem;
-        padding-top: 1rem;
-        border-top: 1px solid var(--color-border);
-        font-size: 0.85rem;
-        color: var(--color-text-secondary);
-      `
-      const sizeMB = (this.convertedVideoBlob.size / (1024 * 1024)).toFixed(2)
-      statsDiv.innerHTML = `
-        <div>🎥 Video: ${sizeMB}MB</div>
-        <div style="margin-top: 0.25rem;">🎵 Audio converted to video with ${this.lastBackgroundImage ? 'custom' : 'black'} background</div>
-      `
-      previewContent.appendChild(statsDiv)
+        // Add video element
+        const video = document.createElement('video')
+        video.src = videoUrl
+        video.controls = true
+        video.style.cssText = 'max-width: 100%; border-radius: 8px; display: block;'
+        previewContent.appendChild(video)
 
-      if (statusDiv) {
-        statusDiv.textContent = '✓ Video ready'
-        statusDiv.style.color = '#4CAF50'
+        // Add stats
+        const statsDiv = document.createElement('div')
+        statsDiv.style.cssText = `
+          margin-top: 1rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--color-border);
+          font-size: 0.85rem;
+          color: var(--color-text-secondary);
+        `
+        const sizeMB = (this.convertedVideoBlob.size / (1024 * 1024)).toFixed(2)
+        statsDiv.innerHTML = `
+          <div>🎥 Video: ${sizeMB}MB</div>
+          <div style="margin-top: 0.25rem;">🎵 Audio converted to video with ${this.lastBackgroundImage ? 'custom' : 'black'} background</div>
+        `
+        previewContent.appendChild(statsDiv)
+
+        if (statusDiv) {
+          statusDiv.textContent = '✓ Video ready'
+          statusDiv.style.color = '#4CAF50'
+        }
+      } else {
+        // Show "Generate video" button overlay
+        const overlayDiv = document.createElement('div')
+        overlayDiv.style.cssText = `
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          min-height: 300px;
+          padding: 3rem 2rem;
+          background: var(--color-bg-secondary);
+          border: 2px dashed var(--color-border);
+          border-radius: 8px;
+          text-align: center;
+          gap: 1.5rem;
+        `
+
+        const messageDiv = document.createElement('div')
+        messageDiv.style.cssText = 'font-size: 1rem; color: var(--color-text-secondary); line-height: 1.6;'
+        messageDiv.innerHTML = `
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">🎬</div>
+          <div><strong>Video preview not generated</strong></div>
+          <div style="margin-top: 0.5rem; font-size: 0.9rem; opacity: 0.8;">
+            ${this.convertedVideoBlob ? 'Settings have changed. Click below to regenerate.' : 'Click below to generate video from audio.'}
+          </div>
+        `
+        overlayDiv.appendChild(messageDiv)
+
+        const generateBtn = document.createElement('button')
+        generateBtn.textContent = '🎥 Generate Video Preview'
+        generateBtn.className = 'primary-button'
+        generateBtn.style.cssText = 'padding: 0.75rem 1.5rem; font-size: 1rem;'
+        generateBtn.id = 'generate-video-preview-btn'
+        generateBtn.addEventListener('click', () => this.convertAudioToVideo())
+        overlayDiv.appendChild(generateBtn)
+
+        const hintDiv = document.createElement('div')
+        hintDiv.style.cssText = 'font-size: 0.85rem; color: var(--color-text-muted);'
+        hintDiv.textContent = 'Generating may take 10-30 seconds depending on audio length'
+        overlayDiv.appendChild(hintDiv)
+
+        previewContent.appendChild(overlayDiv)
+
+        if (statusDiv) {
+          statusDiv.textContent = ''
+        }
       }
       return
     }
@@ -552,12 +635,12 @@ export class SceneEditor {
       this.lastRenderedBackground = '' // Force preview to regenerate
       this.callbacks.onSceneDataChange(this.getSceneData())
 
-      // If we have audio, re-convert with new background
+      // If we have audio, mark video as outdated (don't auto-generate)
       if (this.audioFile) {
-        this.convertAudioToVideo()
-      } else {
-        this.schedulePreviewRefresh()
+        this.videoPreviewOutdated = true
       }
+
+      this.schedulePreviewRefresh()
     }
 
     reader.readAsDataURL(file)
@@ -622,12 +705,13 @@ export class SceneEditor {
     if (removeBtn) removeBtn.style.display = 'inline-block'
     if (vizOptions) vizOptions.style.display = 'block'
 
-    // Store the audio file and clear previous conversion
+    // Store the audio file and mark video as outdated
     this.audioFile = file
     this.convertedVideoBlob = null
+    this.videoPreviewOutdated = true
 
-    // Trigger conversion for preview
-    this.convertAudioToVideo()
+    // Update preview to show "Generate video" button
+    this.schedulePreviewRefresh()
 
     this.callbacks.onSceneDataChange(this.getSceneData())
   }
@@ -667,13 +751,75 @@ export class SceneEditor {
 
     console.log('Starting audio conversion in SceneEditor...')
     this.isConvertingAudio = true
-    const audioConversionStatus = document.getElementById('audio-conversion-status')
+
+    // Show progress in preview pane instead of status area
+    const previewContent = document.getElementById('preview-content')
+    if (previewContent) {
+      previewContent.innerHTML = `
+        <div style="
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          min-height: 300px;
+          padding: 3rem 2rem;
+          background: var(--color-bg-secondary);
+          border: 2px solid var(--color-accent);
+          border-radius: 8px;
+          text-align: center;
+          gap: 2rem;
+        ">
+          <div style="font-size: 1rem; color: var(--color-text-primary); line-height: 1.6;">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">⏳</div>
+            <div style="font-weight: 500; font-size: 1.1rem;">Converting audio to video...</div>
+          </div>
+
+          <div style="width: 100%; max-width: 400px;">
+            <div style="margin-bottom: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px; color: var(--color-text-secondary);">
+                <span id="frame-progress-label">Generating frames</span>
+                <span id="frame-progress-percent">0%</span>
+              </div>
+              <div style="height: 8px; background: var(--color-bg-tertiary); border-radius: 4px; overflow: hidden;">
+                <div id="frame-progress-bar" style="height: 100%; width: 0%; background: var(--color-accent); transition: width 0.3s;"></div>
+              </div>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 6px; color: var(--color-text-secondary);">
+                <span id="encode-progress-label">Encoding video</span>
+                <span id="encode-progress-percent">0%</span>
+              </div>
+              <div style="height: 8px; background: var(--color-bg-tertiary); border-radius: 4px; overflow: hidden;">
+                <div id="encode-progress-bar" style="height: 100%; width: 0%; background: var(--color-accent); transition: width 0.3s;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size: 0.85rem; color: var(--color-text-muted);">
+            This may take 10-30 seconds
+          </div>
+        </div>
+      `
+    }
 
     try {
-      // Show conversion status
-      if (audioConversionStatus) {
-        audioConversionStatus.style.display = 'block'
-        audioConversionStatus.innerHTML = '<span style="opacity: 0.8;">⏳ Converting audio to video...</span>'
+
+      // Progress callback function
+      const updateProgress = (current: number, total: number, stage: string) => {
+        const percent = Math.round((current / total) * 100)
+
+        if (stage === 'Generating frames') {
+          const barEl = document.getElementById('frame-progress-bar')
+          const percentEl = document.getElementById('frame-progress-percent')
+          if (barEl) barEl.style.width = `${percent}%`
+          if (percentEl) percentEl.textContent = `${percent}%`
+        } else if (stage === 'Encoding video') {
+          const barEl = document.getElementById('encode-progress-bar')
+          const percentEl = document.getElementById('encode-progress-percent')
+          if (barEl) barEl.style.width = `${percent}%`
+          if (percentEl) percentEl.textContent = `${percent}%`
+        }
       }
 
       // Check if waveform visualization is enabled
@@ -703,12 +849,15 @@ export class SceneEditor {
         }
 
         // Generate waveform frames with text overlay and background image
-        const { frames, duration, fps } = await generateWaveformFrames(this.audioFile, {
-          backgroundImage: backgroundImageBlob,
-          text: overlayText || undefined,
-          waveformColor: '#00bfff', // Consistent with theme accent color
-          playheadColor: '#ffffff'
-        })
+        const { frames, duration, fps } = await generateWaveformFrames(
+          this.audioFile,
+          {
+            backgroundImage: backgroundImageBlob,
+            text: overlayText || undefined
+            // Uses default colors from WAVEFORM_SETTINGS
+          },
+          updateProgress // Pass progress callback
+        )
 
         console.log(`Generated ${frames.length} frames at ${fps} FPS for ${duration}s`)
 
@@ -720,7 +869,8 @@ export class SceneEditor {
           frames,
           this.audioFile,
           fps,
-          audioExt
+          audioExt,
+          updateProgress // Pass progress callback
         )
       } else {
         console.log('Using simple audio + image conversion...')
@@ -743,6 +893,19 @@ export class SceneEditor {
 
       console.log('Video conversion complete, size:', this.convertedVideoBlob.size)
 
+      // Save current settings as last video settings
+      const imageText = (document.getElementById('image-text') as HTMLTextAreaElement)?.value || ''
+      const choices = (document.getElementById('choices') as HTMLTextAreaElement)?.value || ''
+      const useWaveform = (document.getElementById('use-waveform-viz') as HTMLInputElement)?.checked ?? true
+
+      this.lastVideoSettings = {
+        imageText,
+        choices,
+        backgroundImage: this.lastBackgroundImage,
+        useWaveform
+      }
+      this.videoPreviewOutdated = false
+
       // Update preview
       this.schedulePreviewRefresh()
 
@@ -750,27 +913,41 @@ export class SceneEditor {
       console.error('Failed to convert audio to video:', error)
       const errorMessage = error?.message || 'Unknown error'
 
-      if (audioConversionStatus) {
-        // Show detailed error to user
-        audioConversionStatus.innerHTML = `
-          <div style="color: #f44336;">
-            <strong>❌ Conversion failed</strong>
-            <div style="font-size: 0.9em; margin-top: 5px; opacity: 0.9;">
+      // Show error in preview pane
+      if (previewContent) {
+        previewContent.innerHTML = `
+          <div style="
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 300px;
+            padding: 3rem 2rem;
+            background: var(--color-error-bg);
+            border: 2px solid var(--color-error-border);
+            border-radius: 8px;
+            text-align: center;
+            gap: 1rem;
+          ">
+            <div style="font-size: 2rem;">❌</div>
+            <div style="font-weight: 500; font-size: 1.1rem; color: var(--color-error);">Conversion failed</div>
+            <div style="font-size: 0.9rem; color: var(--color-text-secondary); max-width: 400px;">
               ${errorMessage}
             </div>
-          </div>`
-        // Keep error visible longer
-        setTimeout(() => {
-          audioConversionStatus.style.display = 'none'
-        }, 10000)
-      }
+            <button id="retry-video-generation" class="secondary-button" style="margin-top: 1rem;">
+              Try Again
+            </button>
+          </div>
+        `
 
-      // Don't alert, the inline message is enough
+        // Add retry button listener
+        const retryBtn = document.getElementById('retry-video-generation')
+        if (retryBtn) {
+          retryBtn.addEventListener('click', () => this.convertAudioToVideo())
+        }
+      }
     } finally {
       this.isConvertingAudio = false
-      if (audioConversionStatus && !audioConversionStatus.innerHTML.includes('failed')) {
-        audioConversionStatus.style.display = 'none'
-      }
     }
   }
 }

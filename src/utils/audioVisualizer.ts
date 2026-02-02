@@ -2,6 +2,8 @@
  * Audio visualization utilities for generating waveforms and other visualizations
  */
 
+import html2canvas from 'html2canvas';
+import { parseMarkdownToHTML, parseChoicesMarkdown } from './markdown';
 import { WAVEFORM_SETTINGS, VIDEO_DIMENSIONS } from '../config/ffmpegSettings';
 
 export interface VisualizationOptions {
@@ -20,6 +22,7 @@ export interface VisualizationOptions {
   waveformOverlayOpacity?: number; // Opacity of dark overlay on waveform area (0-1)
   playAreaGlow?: boolean; // Use glow effect instead of playhead line
   playAreaWidth?: number; // Width of play area glow in pixels
+  playAreaBrightness?: number; // Max brightness boost for glow (0-255)
 }
 
 // Use centralized video dimensions
@@ -29,8 +32,8 @@ const VIDEO_HEIGHT = VIDEO_DIMENSIONS.height;
 // Default options use centralized WAVEFORM_SETTINGS
 const defaultOptions: VisualizationOptions = {
   backgroundColor: WAVEFORM_SETTINGS.backgroundColor,
-  waveformColor: '#66d9ff',  // Light blue for unplayed
-  waveformPlayedColor: '#3399cc',  // Medium blue for played
+  waveformColor: '#e6e6ff',  // Light blue-white (230,230,255) for unplayed
+  waveformPlayedColor: '#7777bb',  // Darker blue for played
   playheadColor: WAVEFORM_SETTINGS.playheadColor,  // Kept for compatibility
   fps: WAVEFORM_SETTINGS.fps,
   style: 'bars',
@@ -40,9 +43,10 @@ const defaultOptions: VisualizationOptions = {
   text: '',
   waveformPosition: WAVEFORM_SETTINGS.waveformPosition,
   waveformHeight: WAVEFORM_SETTINGS.waveformHeight,
-  waveformOverlayOpacity: 0.6,  // 60% dark overlay on waveform area
+  waveformOverlayOpacity: 0.3,  // 30% dark overlay on waveform area
   playAreaGlow: true,  // Use glow instead of playhead line
-  playAreaWidth: 100  // Width of glow area in pixels
+  playAreaWidth: 50,  // Width of glow area in pixels (narrower)
+  playAreaBrightness: 100  // Max brightness boost
 };
 
 /**
@@ -160,29 +164,8 @@ async function drawWaveform(
     ctx.fillRect(0, 0, width, height);
   }
 
-  // Draw text if provided
-  if (options.text && options.text.trim()) {
-    // Simple text rendering - could be enhanced with more options
-    ctx.fillStyle = 'white';
-    ctx.font = `bold ${Math.floor(height * 0.06)}px system-ui, -apple-system, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Add shadow for better readability
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-
-    // Position text in upper portion
-    ctx.fillText(options.text, width / 2, height * 0.15);
-
-    // Reset shadow
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-  }
+  // Note: Text overlay is now handled via html2canvas and composited separately
+  // This allows for markdown/HTML rendering
 
   // Calculate dimensions based on position setting
   let waveformY, waveformHeight;
@@ -241,7 +224,8 @@ async function drawWaveform(
         if (distanceFromPlayhead < glowRange) {
           // Calculate brightness based on distance
           const glowStrength = 1 - (distanceFromPlayhead / glowRange);
-          const brighten = Math.floor(glowStrength * 60); // Max 60 brightness boost
+          const maxBrightness = options.playAreaBrightness || 100;
+          const brighten = Math.floor(glowStrength * maxBrightness);
 
           // Parse hex color and brighten it
           const r = Math.min(255, parseInt(barColor.slice(1,3), 16) + brighten);
@@ -355,11 +339,119 @@ async function drawWaveform(
 }
 
 /**
+ * Render text overlay using html2canvas for markdown/HTML support
+ */
+async function renderTextOverlay(text: string): Promise<HTMLCanvasElement> {
+  // Split text into scene and choices
+  const parts = text.split('What do you do?');
+  const sceneText = parts[0].trim();
+  const choicesText = parts[1]?.trim() || '';
+  const choices = choicesText ? choicesText.split('\n').filter(c => c.trim()) : [];
+
+  // Create a temporary container for rendering
+  const container = document.createElement('div');
+  container.style.cssText = `
+    position: fixed;
+    top: -9999px;
+    left: -9999px;
+    width: ${VIDEO_WIDTH}px;
+    height: ${VIDEO_HEIGHT}px;
+    font-family: system-ui, -apple-system, sans-serif;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+
+  // Create content wrapper with padding
+  const contentWrapper = document.createElement('div');
+  contentWrapper.style.cssText = `
+    max-width: ${VIDEO_WIDTH - 80}px;
+    padding: 40px;
+    position: relative;
+    z-index: 1;
+  `;
+  container.appendChild(contentWrapper);
+
+  // Add scene text with markdown parsing
+  if (sceneText) {
+    const sceneDiv = document.createElement('div');
+    sceneDiv.style.cssText = `
+      font-size: 24px;
+      line-height: 1.6;
+      margin-bottom: ${choices.length > 0 ? '30px' : '0'};
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+      white-space: pre-wrap;
+    `;
+    sceneDiv.innerHTML = parseMarkdownToHTML(sceneText);
+    contentWrapper.appendChild(sceneDiv);
+  }
+
+  // Add choices if any
+  if (choices.length > 0) {
+    const choicesDiv = document.createElement('div');
+    choicesDiv.style.cssText = `
+      border-top: 2px solid rgba(255,255,255,0.4);
+      padding-top: 30px;
+    `;
+
+    const choicesTitle = document.createElement('div');
+    choicesTitle.style.cssText = `
+      font-size: 18px;
+      margin-bottom: 15px;
+      opacity: 0.9;
+      font-weight: 600;
+      text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    `;
+    choicesTitle.textContent = 'What do you do?';
+    choicesDiv.appendChild(choicesTitle);
+
+    const parsedChoices = parseChoicesMarkdown(choices);
+    parsedChoices.forEach(choice => {
+      const choiceItem = document.createElement('div');
+      choiceItem.style.cssText = `
+        font-size: 20px;
+        margin: 10px 0;
+        padding: 12px 15px;
+        background: rgba(0,0,0,0.5);
+        border-radius: 8px;
+        backdrop-filter: blur(10px);
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+      `;
+      choiceItem.innerHTML = choice.html;
+      choicesDiv.appendChild(choiceItem);
+    });
+
+    contentWrapper.appendChild(choicesDiv);
+  }
+
+  // Add to document temporarily
+  document.body.appendChild(container);
+
+  try {
+    // Generate the overlay canvas
+    const canvas = await html2canvas(container, {
+      backgroundColor: null, // Transparent background
+      scale: 1,
+      logging: false,
+      width: VIDEO_WIDTH,
+      height: VIDEO_HEIGHT,
+    });
+
+    return canvas;
+  } finally {
+    // Clean up
+    document.body.removeChild(container);
+  }
+}
+
+/**
  * Generate video frames for waveform animation
  */
 export async function generateWaveformFrames(
   audioFile: File | Blob,
-  options: Partial<VisualizationOptions> = {}
+  options: Partial<VisualizationOptions> = {},
+  onProgress?: (current: number, total: number, stage: string) => void
 ): Promise<{
   frames: Blob[];
   duration: number;
@@ -378,6 +470,13 @@ export async function generateWaveformFrames(
   if (opts.backgroundImage) {
     console.log('Loading background image...');
     backgroundImg = await loadBackgroundImage(opts.backgroundImage);
+  }
+
+  // Render text overlay if provided
+  let textOverlayCanvas: HTMLCanvasElement | null = null;
+  if (opts.text && opts.text.trim()) {
+    console.log('Rendering text overlay with markdown/HTML...');
+    textOverlayCanvas = await renderTextOverlay(opts.text);
   }
 
   // Create canvas with fixed dimensions
@@ -400,6 +499,11 @@ export async function generateWaveformFrames(
     // Draw frame
     await drawWaveform(ctx, sampleData, opts, progress, backgroundImg);
 
+    // Composite text overlay on top if present
+    if (textOverlayCanvas) {
+      ctx.drawImage(textOverlayCanvas, 0, 0);
+    }
+
     // Convert canvas to blob
     const blob = await new Promise<Blob>((resolve) => {
       canvas.toBlob((blob) => {
@@ -408,6 +512,11 @@ export async function generateWaveformFrames(
     });
 
     frames.push(blob);
+
+    // Report progress
+    if (onProgress) {
+      onProgress(frameIndex + 1, totalFrames, 'Generating frames');
+    }
 
     // Log progress every 10%
     if (frameIndex % Math.floor(totalFrames / 10) === 0) {

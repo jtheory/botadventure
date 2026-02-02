@@ -230,18 +230,18 @@
 
             <div class="control">
                 <label for="waveColor">Waveform Color (Unplayed)</label>
-                <input type="color" id="waveColor" value="#66d9ff">
+                <input type="color" id="waveColor" value="#e6e6ff">
             </div>
 
             <div class="control">
                 <label for="wavePlayedColor">Waveform Color (Played)</label>
-                <input type="color" id="wavePlayedColor" value="#3399cc">
+                <input type="color" id="wavePlayedColor" value="#7777bb">
             </div>
 
             <div class="control">
                 <label for="waveformOverlay">Waveform Overlay Opacity</label>
-                <input type="range" id="waveformOverlay" min="0" max="100" value="60">
-                <div class="range-value" id="waveformOverlayValue">60%</div>
+                <input type="range" id="waveformOverlay" min="0" max="100" value="30">
+                <div class="range-value" id="waveformOverlayValue">30%</div>
             </div>
 
             <div class="control">
@@ -251,8 +251,14 @@
 
             <div class="control">
                 <label for="playAreaWidth">Play Area Glow Width</label>
-                <input type="range" id="playAreaWidth" min="20" max="200" value="100">
-                <div class="range-value" id="playAreaWidthValue">100 px</div>
+                <input type="range" id="playAreaWidth" min="5" max="200" value="50">
+                <div class="range-value" id="playAreaWidthValue">50 px</div>
+            </div>
+
+            <div class="control">
+                <label for="playAreaBrightness">Play Area Glow Brightness</label>
+                <input type="range" id="playAreaBrightness" min="0" max="255" value="100">
+                <div class="range-value" id="playAreaBrightnessValue">100</div>
             </div>
 
             <div class="control">
@@ -288,8 +294,8 @@
 
             <div class="control">
                 <label for="waveformHeight">Waveform Height (when bottom)</label>
-                <input type="range" id="waveformHeight" min="5" max="30" value="15">
-                <div class="range-value" id="waveformHeightValue">15%</div>
+                <input type="range" id="waveformHeight" min="5" max="30" value="10">
+                <div class="range-value" id="waveformHeightValue">10%</div>
             </div>
         </div>
 
@@ -424,6 +430,11 @@
             document.getElementById('playAreaWidthValue').textContent = `${e.target.value} px`;
         });
 
+        // Play Area Brightness slider
+        document.getElementById('playAreaBrightness').addEventListener('input', (e) => {
+            document.getElementById('playAreaBrightnessValue').textContent = `${e.target.value}`;
+        });
+
         // Get current settings
         function getSettings() {
             return {
@@ -441,7 +452,8 @@
                 waveformHeight: parseInt(document.getElementById('waveformHeight').value) / 100,
                 waveformOverlayOpacity: parseInt(document.getElementById('waveformOverlay').value) / 100,
                 playAreaGlow: document.getElementById('playAreaGlow').checked,
-                playAreaWidth: parseInt(document.getElementById('playAreaWidth').value)
+                playAreaWidth: parseInt(document.getElementById('playAreaWidth').value),
+                playAreaBrightness: parseInt(document.getElementById('playAreaBrightness').value)
             };
         }
 

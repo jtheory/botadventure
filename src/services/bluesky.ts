@@ -42,6 +42,10 @@ export class BlueskyService {
         $type: 'app.bsky.embed.video',
         video: options.videoBlob,
         alt: options.videoAlt || '',
+        aspectRatio: {
+          width: 9,
+          height: 16,
+        },
       }
     } else if (options.imageBlob) {
       postData.embed = {

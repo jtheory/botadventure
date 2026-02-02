@@ -737,10 +737,17 @@ class BotAdventureApp {
     }
   }
 
+  private stripHTML(text: string): string {
+    // Create a temporary div to parse HTML
+    const div = document.createElement('div')
+    div.innerHTML = text
+    return div.textContent || div.innerText || ''
+  }
+
   private combineSceneAndChoices(sceneText: string, choicesText: string): string {
-    // Strip markdown for plain text (alt text and text posts)
-    const trimmedScene = stripMarkdown(sceneText.trim())
-    const trimmedChoices = stripMarkdown(choicesText.trim())
+    // Strip markdown and HTML for plain text (alt text and text posts)
+    const trimmedScene = this.stripHTML(stripMarkdown(sceneText.trim()))
+    const trimmedChoices = this.stripHTML(stripMarkdown(choicesText.trim()))
 
     if (!trimmedChoices) {
       return trimmedScene

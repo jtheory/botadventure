@@ -13,6 +13,10 @@ let loadingPromise: Promise<FFmpeg> | null = null;
 // Track last error for debugging
 export let lastFFmpegError = '';
 
+// Track encoding progress callback
+let currentProgressCallback: ((current: number, total: number, stage: string) => void) | null = null;
+let currentTotalFrames: number = 0;
+
 // Configuration for different conversion presets
 export interface ConversionPreset {
   name: string;
@@ -211,6 +215,13 @@ async function loadFFmpeg(): Promise<FFmpeg> {
 
   ffmpeg.on('progress', ({ progress, time }) => {
     console.log(`FFmpeg progress: ${(progress * 100).toFixed(1)}% (time: ${time})`);
+
+    // Report encoding progress if callback is set
+    if (currentProgressCallback && progress >= 0) {
+      // Progress is 0-1, convert to percentage
+      const percent = Math.round(progress * 100);
+      currentProgressCallback(percent, 100, 'Encoding video');
+    }
   });
 
   try {
@@ -462,7 +473,8 @@ export async function createVideoFromFrames(
   frames: Blob[],
   audioFile: File | Uint8Array,
   fps: number = 10,
-  audioExt: string = 'mp3'
+  audioExt: string = 'mp3',
+  onProgress?: (current: number, total: number, stage: string) => void
 ): Promise<Blob> {
   const ff = await getFFmpeg();
   lastFFmpegError = '';
@@ -501,6 +513,16 @@ export async function createVideoFromFrames(
 
     // Create video from frames and audio (uses WAVEFORM_SETTINGS)
     console.log('Combining frames and audio...');
+
+    // Set up progress callback for FFmpeg
+    currentProgressCallback = onProgress || null;
+    currentTotalFrames = frames.length;
+
+    // Report encoding start
+    if (onProgress) {
+      onProgress(0, 100, 'Encoding video');
+    }
+
     const result = await ff.exec([
       '-framerate', fps.toString(),
       '-i', 'frame_%05d.jpg',  // Input pattern for frame sequence
@@ -517,6 +539,15 @@ export async function createVideoFromFrames(
       '-movflags', WAVEFORM_SETTINGS.movFlags,
       'output.mp4'
     ]);
+
+    // Clear progress callback
+    currentProgressCallback = null;
+    currentTotalFrames = 0;
+
+    // Report encoding complete
+    if (onProgress) {
+      onProgress(100, 100, 'Encoding video');
+    }
 
     if (result !== 0) {
       const errorDetail = lastFFmpegError || 'Unknown error during frame video creation';
